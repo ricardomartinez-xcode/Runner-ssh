@@ -18,7 +18,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --include=dev
-      - run: npm install --no-save fastify@^5.2.0 jose@^5.10.0 yaml@^2.7.0 zod@^3.24.0
+      - name: Install dependencies from manifest
+        run: npm install --no-package-lock --ignore-scripts --include=prod --include=dev
+      - name: Verify runtime modules
+        run: node -e "for (const packageName of ['fastify', 'jose', 'yaml', 'zod']) {require.resolve(packageName)}"
       - run: npm run check
       - run: npm test
+      - name: Build production Docker image
+        run: docker build --no-cache -t runner-ssh:ci .
