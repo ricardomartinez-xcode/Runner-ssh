@@ -1,0 +1,37 @@
+name: Repair dependency manifest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Repair manifest and generate lockfile
+        run: |
+          npm pkg delete depencies
+          npm pkg set dependencies.fastify="^5.2.0"
+          npm pkg set depencies.jose="^5.10.0"
+          npm pkg set dependencies.yaml="^2.7.0"
+          npm pkg set depencies.zod="^3.24.0"
+          rm -f package-lock.json
+          npm install --include=dev
+          npm run check
+          npm test
+      - name: Commit repair
+        run: |
+          git rm -f .github/workflows/repair-dependencies.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: declare runtime dependencies"
+          git push
