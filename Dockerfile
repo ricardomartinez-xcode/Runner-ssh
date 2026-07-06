@@ -1,10 +1,13 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
+
 COPY package.json ./
-RUN npm install --ignore-scripts --include=prod --include=dev
+RUN npm install --no-package-lock --ignore-scripts --include=prod --include=dev \
+    && node -e "for (const packageName of ['fastify', 'jose', 'yaml', 'zod']) {require.resolve(packageName)}"
+
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build && npm prune --omit=dev
+RUN npm run build && npm prune --omit=dev --ignore-scripts
 
 FROM 1password/op:2 AS onepassword
 
@@ -25,7 +28,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY config ./config
 COPY package.json ./
-RUN useradd --create-home --shell /usr/sbin/nologin runnr \
+RUN useradd --create-home --shell /usr/sbin/nologin runner \
     && mkdir -p /var/data \
     && chown -R runner:runner /app /var/data
 USER runner
