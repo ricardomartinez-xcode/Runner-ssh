@@ -19,8 +19,17 @@ jobs:
       - name: Run diagnostics
         run: |
           set +e
-          npm install > /tmp/npm-install.log 2>&1
+          npm config list > /tmp/npm-config.log 2>&1
+          npm install --include=prod --include=dev > /tmp/npm-install.log 2>&1
           install_status=$?
+          test -d node_modules/fastify
+          fastify_status=$?
+          test -d node_modules/zod
+          zod_status=$?
+          test -d node_modules/jose
+          jose_status=$?
+          test -d node_modules/yaml
+          yaml_status=$?
           npm run check > /tmp/typecheck.log 2>&1
           check_status=$?
           npm test > /tmp/test.log 2>&1
@@ -31,11 +40,21 @@ jobs:
             echo "# CI diagnosis"
             echo
             echo "npm install: $install_status"
+            echo "fastify directory: $fastify_status"
+            echo "zod directory: $zod_status"
+            echo "jose directory: $jose_status"
+            echo "yaml directory: $yaml_status"
             echo "npm run check: $check_status"
             echo "npm test: $test_status"
             echo
+            echo "## npm config"
+            cat /tmp/npm-config.log
+            echo
             echo "## npm install"
             cat /tmp/npm-install.log
+            echo
+            echo "## installed direct packages"
+            find node_modules -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | sort
             echo
             echo "## npm run check"
             cat /tmp/typecheck.log
@@ -48,6 +67,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ci-diagnostic.md
-          git commit -m "chore: add temporary CI diagnosis"
+          git add ci-diagostic.md
+          git diff --cached --quiet || git commit -m "chore: refresh temporary CI diagnosis"
           git push
