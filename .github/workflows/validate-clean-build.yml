@@ -1,0 +1,48 @@
+name: Validate clean build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rebuild and validate lockfile in a clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf node_modules package-lock.json
+          node -e 'const p=require("./package.json"); console.log({{}: p.dependencies || NULL); if (!p.dependencies) throw new Error("package.json has no dependencies object"); for (const name of ["fastify", "jose", "yaml", "zod"]) if (!p.dependencies[name]) throw new Error(`Missing ${name} in package.json`);'
+          npm install --package-lock-only --ignore-scripts --include=prod --include=dev
+          node - <<'NODE'
+          const root = require("./package-lock.json").packages[""] || {};
+          const deps = root.dependencies || {};
+          for (const name of ["fastify", "jose", "yaml", "zod"]) {
+            if (!deps[name]) throw new Error(`Missing ${name} in package-lock.json`);
+          }
+          console.log("Lockfile runtime dependencies ok:", deps);
+          NODE
+          npm ci --ignore-scripts
+          npm ls fastify jose yaml zod
+          npm run check
+          npm test
+          docker build --no-cache --progress=plain -t runner-ssh:validation .
+      - name: Commit validated lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/validate-clean-build.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "4189822+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json .github/workflows/validate-clean-build.yml
+          git commit -m "fix: rebuild lockfile and validate clean build"
+          git push
