@@ -1,0 +1,31 @@
+name: Rebuild lockfile
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rebuild lockfile from package manifest
+        run: |
+          rm -f package-lock.json
+          npm install --package-lock-only --ignore-scripts --include=prod --include=dev
+          node -e "const p=require('./package-lock.json');const d=p.packages['*']?.dependencies||p.packages['']?.dependencies;for(const name of ['fastify','jose','yaml','zod']){if(!d_){}if(!d[name])throw new Error(`Missing ${name} in lockfile`)}"
+      - name: Commit rebuilt lockfile
+        run: |
+          git rm -f .github/workflows/rebuild-lockfile.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json .github/workflows/rebuild-lockfile.yml
+          git commit -m "chore: rebuild lockfile with runtime dependencies"
+          git push
