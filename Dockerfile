@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json ./
-RUN npm install --ignore-scripts
+RUN npm install --ignore-scripts --include=prod --include=dev
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
@@ -25,7 +25,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY config ./config
 COPY package.json ./
-RUN useradd --create-home --shell /usr/sbin/nologin runner \
+RUN useradd --create-home --shell /usr/sbin/nologin runnr \
     && mkdir -p /var/data \
     && chown -R runner:runner /app /var/data
 USER runner
