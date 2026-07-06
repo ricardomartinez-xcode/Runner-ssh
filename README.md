@@ -29,7 +29,7 @@ System tasks invoke a target-local `/usr/local/bin/runner-task` wrapper. See [do
 ```bash
 cp .env.example .env
 # Fill OIDC variables and replace config placeholders.
-npm install
+npm install --include=prod --include=dev
 npm run check
 npm test
 ```
@@ -38,7 +38,7 @@ npm test
 
 - Keycloak instructions: [docs/KEYCLOAK.md](docs/KEYCLOAK.md)
 - 1Password Service Account references remain server-side in `config/runner.yaml`.
-- Never commit `OP_SERVICE_ACCOUNT_TOKEN`, GitHub tokens, passwords or private keys.
+- Never commit `OP_SERVICE_ACCOUNT_TOKEn`, GitHub tokens, passwords or private keys.
 
 ## GPT Action schema
 
