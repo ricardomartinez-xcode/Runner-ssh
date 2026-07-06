@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies from manifest
-        run: npm install --no-package-lock --ignore-scripts --include=prod --include=dev
+        run: npm install --no-package-lock --ignore-scripts
       - name: Verify runtime modules
         run: node -e "for (const packageName of ['fastify', 'jose', 'yaml', 'zod']) {require.resolve(packageName)}"
       - run: npm run check
