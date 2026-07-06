@@ -1,0 +1,164 @@
+openapi: 3.1.0
+info:
+  title: SSH Runner API
+  version: "1.0.0"
+  description: "OAuth-protected allowlisted SSH and Codespaces task runner. No action accepts arbitrary commands, target hosts, credentials or secret references."
+servers:
+  - url: https://REPLACE_WITH_RUNNER_DOMAIN
+paths:
+  /health:
+    get:
+      operationId: getRunnerHealth
+      summary: Get runner health
+      responses:
+        "200":
+          description: Health response
+  /v1/collections:
+    get:
+      operationId: listSshCollections
+      summary: List permitted SSH task collections
+      responses:
+        "200":
+          description: Collections response
+  /v1/collections/{collectionId}:
+    get:
+      operationId: getSshCollection
+      summary: Get one permitted SSH task collection
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Collection response
+  /v1/targets:
+    get:
+      operationId: listSshTargets
+      summary: List permitted SSH and Codespace targets
+      responses:
+        "200":
+          description: Targets response
+   /v1/collections/{collectionId}:
+    get:
+      operationId: getSshCollection
+      summary: Get one permitted SSH task collection
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Collection response
+  /v1/targets:
+    get:
+      operationId: listSshTargets
+      summary: List permitted SSH and Codespace targets
+      responses:
+        "200":
+          description: Targets response
+   /v1/targets/{targetId}:
+    get:
+      operationId: getSshTarget
+      summary: Get one permitted target
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Target response
+  /v1/jobs/plan:
+    post:
+      operationId: planSshTask
+      summary: Plan an allowlisted SSH task without executing it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_id:
+                  type: string
+                collection_id:
+                  type: string
+                task_id:
+                  type: string
+              required:
+                - target_id
+                - collection_id
+                - task_id
+      responses:
+        "201":
+          description: Planned job response
+  /v1/jobs/{jobId}/confirm:
+    post:
+      operationId: confirmSshJob
+      summary: Confirm and execute a planned SSH task
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation:
+                  type: string
+                  enum:
+                    - EJECUTAR
+              required:
+                - confirmation
+      responses:
+        "200":
+          description: Confirmed job response
+  /v1/jobs/{jobId}:
+    get:
+      operationId: getSshJob
+      summary: Get SSH job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status response
+  /v1/jobs/{jobId}/log:
+    get:
+      operationId: getSshJobLog
+      summary: Get redacted SSH job output
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job log response
+  /v1/jobs/{jobId}/cancel:
+    post:
+      operationId: cancelSshJob
+      summary: Cancel a queued or running SSH job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancelled job response
