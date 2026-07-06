@@ -1,4 +1,4 @@
-name: Bootstrap SSH runner
+name: Cleanup temporary bootstrap artifacts
 
 on:
   workflow_dispatch:
@@ -7,22 +7,16 @@ permissions:
   contents: write
 
 jobs:
-  bootstrap:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: true
-      - name: Verify and unpack the reviewed project archive
+      - name: Remove temporary archive and workflow
         run: |
-          base64 --decode .bootstrap/runner-ssh.tar.gz > /tmp/runner-ssh.tar.gz
-          echo "ee01611726878f8660f10ed6222900a51a39d540e9ce088312d9037758b9f82d  /tmp/runner-ssh.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/runner-ssh.tar.gz
-      - name: Commit runer source
-        run: |
-          rm -rf .bootstrap .github/workflows/bootstrap.yml
+          git rm -rf .bootstrap .github/workflows/bootstrap.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "feat: add OAuth-protected SSH task runner"
+          git commit -m "chore: remove temporary bootstrap artifacts"
           git push
