@@ -40,26 +40,6 @@ paths:
       responses:
         "200":
           description: Targets response
-   /v1/collections/{collectionId}:
-    get:
-      operationId: getSshCollection
-      summary: Get one permitted SSH task collection
-      parameters:
-        - name: collectionId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Collection response
-  /v1/targets:
-    get:
-      operationId: listSshTargets
-      summary: List permitted SSH and Codespace targets
-      responses:
-        "200":
-          description: Targets response
    /v1/targets/{targetId}:
     get:
       operationId: getSshTarget
@@ -73,7 +53,7 @@ paths:
       responses:
         "200":
           description: Target response
-  /v1/jobs/plan:
+   /v1/jobs/plan:
     post:
       operationId: planSshTask
       summary: Plan an allowlisted SSH task without executing it
