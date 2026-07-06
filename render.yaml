@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: runner-ssh
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: false
+    disk:
+      name: runner-ssh-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: DATA_DIR
+        value: /var/data
+      - key: RUNNER_CONFIG_PATH
+        value: /app/config/runner.yaml
+      - key: OIDC_ISSUER_URL
+        sync: false
+      - key: OIDC_JWKS_URL
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_REQUIRED_SCOPE
+        value: runner:ssh
+      - key: OP_SERVICE_ACCOUNT_TOKEN
+        sync: false
