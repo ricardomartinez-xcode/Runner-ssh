@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json ./
-RUN npm install --no-package-lock --ignore-scripts --include=prod --include=dev \
+RUN npm install --no-package-lock --ignore-scripts \
     && node -e "for (const packageName of ['fastify', 'jose', 'yaml', 'zod']) {require.resolve(packageName)}"
 
 COPY tsconfig.json ./
@@ -28,7 +28,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY config ./config
 COPY package.json ./
-RUN useradd --create-home --shell /usr/sbin/nologin runner \
+RUN useradd --create-home --shell /usr/sbin/nologin runnr \
     && mkdir -p /var/data \
     && chown -R runner:runner /app /var/data
 USER runner
