@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import type { Environm } from "./config.js";
+import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { unauthorized } from "./errors.js";
 

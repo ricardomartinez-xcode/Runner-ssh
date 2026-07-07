@@ -14,7 +14,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
-  "depencies": {
+  "dependencies": {
     "fastify": "^5.2.0",
     "jose": "^5.10.0",
     "yaml": "^2.7.0",
