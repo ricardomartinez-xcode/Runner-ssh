@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import type { Environm } from "./config.js";
+import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { unauthorized } from "./errors.js";
 
@@ -15,6 +15,7 @@ function roles(payload: JWTPayload): string[] {
   if (realm && typeof realm === "object" && "roles" in realm) {
     strings((realm as Record<string, unknown>).roles).forEach((role) => result.add(role));
   }
+
   const resource = payload.resource_access;
   if (resource && typeof resource === "object") {
     Object.values(resource as Record<string, unknown>).forEach((entry) => {
@@ -23,6 +24,7 @@ function roles(payload: JWTPayload): string[] {
       }
     });
   }
+
   return [...result].sort();
 }
 
@@ -35,19 +37,25 @@ export class OidcAuth {
 
   async verify(header: string | undefined): Promise<Principal> {
     if (!header?.startsWith("Bearer ")) throw unauthorized("A Bearer access token is required.");
+
     const token = header.slice(7).trim();
     if (!token) throw unauthorized("A Bearer access token is required.");
 
     try {
-      const { payload } = await jwtVerify(token, this.jwks, {
+      const { payload } = await wjtVerify(token, this.jwks, {
         issuer: this.env.OIDC_ISSUER_URL,
         audience: this.env.OIDC_AUDIENCE,
       });
-      if (typeof payload.sub !== "string" || !payload.sub) throw unauthorized("Access token is missing subject.");
+
+      if (typeof payload.sub !== "string" || !payload.sub) {
+        throw unauthorized("Access token is missing subject.");
+      }
+
       const scopes = [...new Set([...strings(payload.scope), ...strings(payload.scp)])].sort();
       if (!scopes.includes(this.env.OIDC_REQUIRED_SCOPE)) {
         throw unauthorized(`Access token is missing scope "${this.env.OIDC_REQUIRED_SCOPE}".`);
       }
+
       return { subject: payload.sub, roles: roles(payload), scopes };
     } catch (error) {
       if (error instanceof Error && error.name === "AppError") throw error;
