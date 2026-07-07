@@ -36,13 +36,15 @@ export class OidcAuth {
   }
 
   async verify(header: string | undefined): Promise<Principal> {
-    if (!header?.startsWith("Bearer ")) throw unauthorized("A Bearer access token is required.");
+    if (!header?.startsWith("Bearer ")) {
+      throw unauthorized("A Bearer access token is required.");
+    }
 
     const token = header.slice(7).trim();
     if (!token) throw unauthorized("A Bearer access token is required.");
 
     try {
-      const { payload } = await wjtVerify(token, this.jwks, {
+      const { payload } = await jwtVerify(token, this.jwks, {
         issuer: this.env.OIDC_ISSUER_URL,
         audience: this.env.OIDC_AUDIENCE,
       });
