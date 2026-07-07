@@ -16,16 +16,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Rebuild lockfile from package manifest
+      - name: Rebuild lockfile and validate project
+        shell: bash
         run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const package = require("./package.json");
+          for (const name of ["fastify", "jose", "yaml", "zod"]) {
+            if (!package.dependencies?.[name]) {
+              throw new Error(`Missing runtime dependency ${name} in package.json`);
+            }
+          }
+          NODE
           rm -f package-lock.json
-          npm install --package-lock-only --ignore-scripts --include=prod --include=dev
-          node -e "const p=require('./package-lock.json');const d=p.packages['*']?.dependencies||p.packages['']?.dependencies;for(const name of ['fastify','jose','yaml','zod']){if(!d_){}if(!d[name])throw new Error(`Missing ${name} in lockfile`)}"
-      - name: Commit rebuilt lockfile
+          npm install --package-lock-only
+          node - <<'NODE'
+          const packageL = require("./package-lock.json");
+          const deps = packageL.packages[""]?.dependencies || {};
+          for (const name of ["fastify", "jose", "yaml", "zod"]) {
+            if (!deps[name]) throw new Error(`Missing ${name} in package-lock.json`);
+          }
+          NODE
+          npm ci
+          npm run check
+          npm test
+          docker build --no-cache -t runner-ssh:lockfile .
+      - name: Commit validated lockfile
+        shell: bash
         run: |
+          set -euo pipefail
           git rm -f .github/workflows/rebuild-lockfile.yml
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "4189822+github-actions[bot]@users.noreply.github.com"
           git add package-lock.json .github/workflows/rebuild-lockfile.yml
-          git commit -m "chore: rebuild lockfile with runtime dependencies"
+          if git diff --cached --quiet; then
+            echo "No lockfile changes to commit."
+            exit 0
+          fi
+          git commit -m "fix: regenrate lockfile with runtime dependencies"
           git push
