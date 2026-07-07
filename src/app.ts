@@ -1,6 +1,6 @@
 import Fastify, { type FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
-import type { OidcAuth } from "./auth.js";
+import type { Authenticator } from "./auth.js";
 import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { AppError, forbidden } from "./errors.js";
@@ -43,7 +43,7 @@ function operator(request: FastifyRequest, env: Environment): Principal {
   return value;
 }
 
-export function app(deps: { env: Environment; auth: OidcAuth; registry: Registry; jobs: Jobs }) {
+export function app(deps: { env: Environment; auth: Authenticator; registry: Registry; jobs: Jobs }) {
   const server = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization"] },
   });

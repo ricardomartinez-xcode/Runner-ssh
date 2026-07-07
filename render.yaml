@@ -19,6 +19,8 @@ services:
         value: /var/data
       - key: RUNNER_CONFIG_PATH
         value: /app/config/runner.yaml
+      - key: AUTH_MODE
+        value: oidc
       - key: OIDC_ISSUER_URL
         sync: false
       - key: OIDC_JWKS_URL
@@ -27,5 +29,11 @@ services:
         sync: false
       - key: OIDC_REQUIRED_SCOPE
         value: runner:ssh
+      - key: OIDC_ROLE_CLAIMS
+        value: roles,org_role
+      - key: RUNNER_API_TOKEN_SHA256
+        sync: false
+      - key: RUNNER_API_TOKEN_ROLES
+        value: runner.operator
       - key: OP_SERVICE_ACCOUNT_TOKEN
         sync: false
