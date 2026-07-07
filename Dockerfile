@@ -28,7 +28,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY config ./config
 COPY package.json ./
-RUN useradd --create-home --shell /usr/sbin/nologin runnr \
+RUN useradd --create-home --shell /usr/sbin/nologin runner \
     && mkdir -p /var/data \
     && chown -R runner:runner /app /var/data
 USER runner
