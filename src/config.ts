@@ -49,21 +49,64 @@ const runnerConfig = z.object({
   targets: z.record(z.union([sshTarget, codespaceTarget])).refine((value) => Object.keys(value).length > 0),
 });
 
+function csvValues(value: string | undefined): string[] {
+  if (!value) return [];
+  return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))].sort();
+}
+
 const environment = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(10000),
   HOST: z.string().min(1).default("0.0.0.0"),
   DATA_DIR: z.string().min(1).default("/var/data"),
   RUNNER_CONFIG_PATH: z.string().min(1).default("/app/config/runner.yaml"),
-  OIDC_ISSUER_URL: z.string().url(),
-  OIDC_JWKS_URL: z.string().url(),
-  OIDC_AUDIENCE: z.string().min(1),
+  AUTH_MODE: z.enum(["oidc", "api_token", "dual"]).default("oidc"),
+  OIDC_ISSUER_URL: z.string().url().optional(),
+  OIDC_JWKS_URL: z.string().url().optional(),
+  OIDC_AUDIENCE: z.string().min(1).optional(),
   OIDC_REQUIRED_SCOPE: z.string().min(1).default("runner:ssh"),
+  OIDC_ROLE_CLAIMS: z.string().min(1).default("roles,org_role"),
+  RUNNER_API_TOKEN_SHA256: z.string().regex(/^[a-fA-F0-9]{64}$/, "Must be a SHA-256 hex digest.").optional(),
+  RUNNER_API_TOKEN_ROLES: z.string().optional(),
   RUNNER_VIEWER_ROLE: z.string().min(1).default("runner.viewer"),
   RUNNER_OPERATOR_ROLE: z.string().min(1).default("runner.operator"),
   JOB_CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(600),
   MAX_JOB_DURATION_SECONDS: z.coerce.number().int().min(5).max(3600).default(300),
   MAX_LOG_BYTES: z.coerce.number().int().min(1024).max(1048576).default(65536),
   MAX_CONCURRENT_JOBS: z.coerce.number().int().min(1).max(10).default(2),
+}).superRefine((value, ctx) => {
+  if (value.AUTH_MODE === "oidc" || value.AUTH_MODE === "dual") {
+    ([
+      ["OIDC_ISSUER_URL", value.OIDC_ISSUER_URL],
+      ["OIDC_JWKS_URL", value.OIDC_JWKS_URL],
+      ["OIDC_AUDIENCE", value.OIDC_AUDIENCE],
+    ] as const).forEach(([key, candidate]) => {
+      if (!candidate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when AUTH_MODE is ${value.AUTH_MODE}.`,
+        });
+      }
+    });
+  }
+
+  if (value.AUTH_MODE === "api_token" || value.AUTH_MODE === "dual") {
+    if (!value.RUNNER_API_TOKEN_SHA256) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["RUNNER_API_TOKEN_SHA256"],
+        message: `RUNNER_API_TOKEN_SHA256 is required when AUTH_MODE is ${value.AUTH_MODE}.`,
+      });
+    }
+
+    if (csvValues(value.RUNNER_API_TOKEN_ROLES).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["RUNNER_API_TOKEN_ROLES"],
+        message: `RUNNER_API_TOKEN_ROLES must contain at least one role when AUTH_MODE is ${value.AUTH_MODE}.`,
+      });
+    }
+  }
 });
 
 export type Environment = z.infer<typeof environment>;
