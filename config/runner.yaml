@@ -1,20 +1,19 @@
 version: 1
 
-# This file is trusted deployment configuration. GPT Actions cannot submit
-# commands, hosts, users, credentials or secret references.
+# Trusted deployment configuration. GPT Actions can only choose one of these
+# server-side allowlisted targets, collections, and tasks.
 collections:
   repository:
-    description: "Safe repository checks for an existing development environment."
-    required_roles: ["runner.operator"]
+    description: "Safe repository checks for the Runner-SSH Codespace."
     tasks:
       repo.status:
         description: "Show the Git working tree status."
         argv: ["git", "status", "--short"]
         timeout_seconds: 30
-      repo.lint:
-        description: "Run the repository lint script."
-        argv: ["npm", "run", "lint"]
-        timeout_seconds: 180
+      repo.install:
+        description: "Install dependencies from package-lock.json."
+        argv: ["npm", "ci"]
+        timeout_seconds: 300
       repo.typecheck:
         description: "Run static TypeScript checks."
         argv: ["npm", "run", "check"]
@@ -28,46 +27,13 @@ collections:
         argv: ["npm", "run", "build"]
         timeout_seconds: 300
 
-  system:
-    description: "Narrow server checks delegated to a target-local allowlist wrapper."
-    required_roles: ["runner.operator"]
-    tasks:
-      system.info:
-        description: "Show non-sensitive system information."
-        argv: ["/usr/local/bin/runner-task", "system-info"]
-        timeout_seconds: 30
-      service.status:
-        description: "Check an approved service status."
-        argv: ["/usr/local/bin/runner-task", "service-status"]
-        timeout_seconds: 45
-      docker.ps:
-        description: "List containers through the local wrapper."
-        argv: ["/usr/local/bin/runner-task", "docker-ps"]
-        timeout_seconds: 45
-
 targets:
-  codespace-dev:
+  runner-ssh-codespace:
     type: codespace
-    description: "Development Codespace placeholder. Replace before use."
-    required_roles: ["runner.operator"]
+    description: "Runner-SSH GitHub Codespace on main."
     allowed_collections: ["repository"]
-    working_directory: "/workspaces/replace-me"
-    codespace_name: "replace-me"
+    working_directory: "/workspaces/Runner-ssh"
+    codespace_name: "runner-ssh-jj64gvwvxwjr2q9j9"
     github_token:
-      provider: 1password
-      reference: "op://runner-ssh-dev/github-codespaces/token"
-
-  microserver-staging:
-    type: ssh
-    description: "Staging server placeholder. Replace before use."
-    required_roles: ["runner.operator"]
-    allowed_collections: ["repository", "system"]
-    working_directory: "/srv/replace-me"
-    host: "replace-me.example.com"
-    port: 22
-    username: "runner"
-    known_hosts: "replace-me.example.com ssh-ed25519 AAAA_REPLACE_WITH_REAL_HOST_KEY"
-    auth:
-      provider: 1password
-      reference: "op://runner-ssh-staging/microserver/private_key"
-      mode: key
+      provider: env
+      reference: "RUNNER_GITHUB_TOKEN"
