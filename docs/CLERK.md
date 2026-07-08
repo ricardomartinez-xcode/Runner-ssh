@@ -1,45 +1,92 @@
 # Clerk + Runner SSH
 
-The Runner is an OAuth/OIDC resource server. It does not need the Clerk SDK: it verifies signed JWT access tokens against the issuer JWKS using `jose`.
+The Runner supports two Clerk-compatible patterns:
+
+1. `AUTH_MODE=oidc` for locally verified JWT access tokens using issuer/JWKS/audience.
+2. `AUTH_MODE=clerk_oauth` for Clerk OAuth access tokens validated through Clerk's `/oauth/token_info` endpoint.
+
+`clerk_oauth` is the recommended mode for GPT Actions because Clerk's OAuth applications do not expose a custom claims editor like JWT Templates. JWT Templates are generated with Clerk session helpers such as `getToken({ template })`, while GPT Actions receive the normal OAuth access token from the OAuth code exchange.
 
 ## 1. Configure Clerk as the OAuth provider
 
-Create an OAuth application in Clerk for the GPT Action. Use the callback URL shown by the GPT editor exactly. For this Runner, use a Clerk custom domain under `relead.com.mx` (for example `auth.relead.com.mx`) so the Action API and OAuth endpoints share the same root domain.
+Create an OAuth application in Clerk for the GPT Action.
 
-Configure the OAuth application to issue access tokens as JWTs. The Runner cannot validate opaque access tokens locally.
-
-## 2. Configure token claims
-
-The OAuth access token must contain:
-
-- `sub`: stable Clerk user ID.
-- `aud`: `runner-api` (or the value chosen for `OIDC_AUDIENCE`).
-- `scope` or `scp`: `runner:ssh`.
-- A role that matches `RUNNER_VIEWER_ROLE` or `RUNNER_OPERATOR_ROLE`.
-
-By default, the Runner reads generic roles from `roles` and `org_role`, plus the existing Keycloak `realm_access.roles` and `resource_access.*.roles` structures. Change `OIDC_ROLE_CLAIMS` to a comma-separated list of claim paths when your Clerk token uses another claim, for example `public_metadata.runner_roles,org_role`.
-
-## 3. Configure Render
-
-Set these environment variables in Render after obtaining the Clerk issuer metadata:
+Use the callback URL shown by the GPT editor. For this Runner, keep both variants when available:
 
 ```text
-AUTH_MODE=dual
-OIDC_ISSUER_URL=<Clerk issuer>
-OIDC_JWKS_URL=<Clerk JWKS URL>
-OIDC_AUDIENCE=runner-api
-OIDC_REQUIRED_SCOPE=runner:ssh
-OIDC_ROLE_CLAIMS=roles,org_role
-RUNNER_API_TOKEN_SHA256=<optional static token SHA-256>
-RUNNER_API_TOKEN_ROLES=runner.operator
+https://chat.openai.com/aip/<gpt-id>/oauth/callback
+https://chatgpt.com/aip/<gpt-id>/oauth/callback
 ```
 
-`AUTH_MODE=oidc` accepts only signed OIDC JWTs. `AUTH_MODE=api_token` accepts only the configured static Bearer token. `AUTH_MODE=dual` accepts either one and is the recommended migration mode.
+Use a Clerk custom domain under the same root domain as the Runner API, for example:
 
-## 4. Configure GPT Actions
+```text
+https://clerk.runner.relead.com.mx
+```
 
-For user sign-in, configure OAuth with Clerk's authorization and token endpoints, client ID, client secret, and scope `openid runner:ssh`.
+The GPT Action API server remains:
 
-For an emergency or machine-only integration, configure the Action with API key / Bearer authentication and use the raw static token. The Runner stores only its SHA-256 digest; rotate the raw token by replacing the digest in Render and updating the Action.
+```text
+https://runner.relead.com.mx
+```
 
-Never commit the raw token, Clerk secret key, OAuth client secret, authorization code, cookies, or JWTs.
+## 2. Configure GPT Actions
+
+Use OAuth authentication:
+
+```text
+Client ID: <Clerk OAuth Application Client ID>
+Client Secret: <Clerk OAuth Application Client Secret>
+Authorization URL: https://clerk.runner.relead.com.mx/oauth/authorize
+Token URL: https://clerk.runner.relead.com.mx/oauth/token
+Scope: openid email profile
+Token Exchange Method: Default
+```
+
+The OpenAPI `servers` entry must point to the Runner, not Clerk:
+
+```yaml
+servers:
+  - url: https://runner.relead.com.mx
+```
+
+## 3. Configure Render with native Clerk OAuth validation
+
+For a single private GPT user, use the user's email as the role value:
+
+```text
+AUTH_MODE=clerk_oauth
+CLERK_FRONTEND_API_URL=https://clerk.runner.relead.com.mx
+CLERK_OAUTH_CLIENT_ID=<Clerk OAuth Application Client ID>
+CLERK_OAUTH_CLIENT_SECRET=<Clerk OAuth Application Client Secret>
+CLERK_REQUIRED_SCOPE=email
+CLERK_ROLE_CLAIMS=email
+RUNNER_VIEWER_ROLE=ricardomartinez@relead.com.mx
+RUNNER_OPERATOR_ROLE=ricardomartinez@relead.com.mx
+```
+
+`CLERK_OAUTH_CLIENT_SECRET` belongs in Render only. Do not commit it.
+
+The Runner validates the access token by:
+
+1. Calling Clerk `/oauth/token_info` with Basic auth using the OAuth client credentials.
+2. Ensuring the token is active and belongs to `CLERK_OAUTH_CLIENT_ID`.
+3. Checking `CLERK_REQUIRED_SCOPE`.
+4. Calling `/oauth/userinfo` and reading role values from `CLERK_ROLE_CLAIMS`.
+
+## 4. Optional JWT-only mode
+
+Use `AUTH_MODE=oidc` only when you know the OAuth access token is a JWT and you know its exact `aud` claim:
+
+```text
+AUTH_MODE=oidc
+OIDC_ISSUER_URL=https://clerk.runner.relead.com.mx
+OIDC_JWKS_URL=https://clerk.runner.relead.com.mx/.well-known/jwks.json
+OIDC_AUDIENCE=<exact aud claim>
+OIDC_REQUIRED_SCOPE=email
+OIDC_ROLE_CLAIMS=email
+RUNNER_VIEWER_ROLE=ricardomartinez@relead.com.mx
+RUNNER_OPERATOR_ROLE=ricardomartinez@relead.com.mx
+```
+
+If the Runner returns `Access token validation failed`, prefer `AUTH_MODE=clerk_oauth`.
