@@ -59,16 +59,27 @@ const environment = z.object({
   HOST: z.string().min(1).default("0.0.0.0"),
   DATA_DIR: z.string().min(1).default("/var/data"),
   RUNNER_CONFIG_PATH: z.string().min(1).default("/app/config/runner.yaml"),
-  AUTH_MODE: z.enum(["oidc", "api_token", "dual"]).default("oidc"),
+
+  AUTH_MODE: z.enum(["oidc", "api_token", "dual", "clerk_oauth"]).default("oidc"),
+
   OIDC_ISSUER_URL: z.string().url().optional(),
   OIDC_JWKS_URL: z.string().url().optional(),
   OIDC_AUDIENCE: z.string().min(1).optional(),
   OIDC_REQUIRED_SCOPE: z.string().min(1).default("runner:ssh"),
   OIDC_ROLE_CLAIMS: z.string().min(1).default("roles,org_role"),
+
+  CLERK_FRONTEND_API_URL: z.string().url().optional(),
+  CLERK_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  CLERK_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  CLERK_REQUIRED_SCOPE: z.string().min(1).default("email"),
+  CLERK_ROLE_CLAIMS: z.string().min(1).default("email"),
+
   RUNNER_API_TOKEN_SHA256: z.string().regex(/^[a-fA-F0-9]{64}$/, "Must be a SHA-256 hex digest.").optional(),
   RUNNER_API_TOKEN_ROLES: z.string().optional(),
+
   RUNNER_VIEWER_ROLE: z.string().min(1).default("runner.viewer"),
   RUNNER_OPERATOR_ROLE: z.string().min(1).default("runner.operator"),
+
   JOB_CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(600),
   MAX_JOB_DURATION_SECONDS: z.coerce.number().int().min(5).max(3600).default(300),
   MAX_LOG_BYTES: z.coerce.number().int().min(1024).max(1048576).default(65536),
@@ -79,6 +90,22 @@ const environment = z.object({
       ["OIDC_ISSUER_URL", value.OIDC_ISSUER_URL],
       ["OIDC_JWKS_URL", value.OIDC_JWKS_URL],
       ["OIDC_AUDIENCE", value.OIDC_AUDIENCE],
+    ] as const).forEach(([key, candidate]) => {
+      if (!candidate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when AUTH_MODE is ${value.AUTH_MODE}.`,
+        });
+      }
+    });
+  }
+
+  if (value.AUTH_MODE === "clerk_oauth") {
+    ([
+      ["CLERK_FRONTEND_API_URL", value.CLERK_FRONTEND_API_URL],
+      ["CLERK_OAUTH_CLIENT_ID", value.CLERK_OAUTH_CLIENT_ID],
+      ["CLERK_OAUTH_CLIENT_SECRET", value.CLERK_OAUTH_CLIENT_SECRET],
     ] as const).forEach(([key, candidate]) => {
       if (!candidate) {
         ctx.addIssue({

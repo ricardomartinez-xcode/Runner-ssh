@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
@@ -6,6 +7,12 @@ import { unauthorized } from "./errors.js";
 
 export interface Authenticator {
   verify(header: string | undefined): Promise<Principal>;
+}
+
+type JsonRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is JsonRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function scopeValues(value: unknown): string[] {
@@ -25,35 +32,43 @@ function csvValues(value: string | undefined): string[] {
   return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))].sort();
 }
 
-function claim(payload: JWTPayload, path: string): unknown {
+function claim(payload: JsonRecord | JWTPayload, path: string): unknown {
   let current: unknown = payload;
   for (const segment of path.split(".").map((entry) => entry.trim()).filter(Boolean)) {
-    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
-    current = (current as Record<string, unknown>)[segment];
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
   }
   return current;
 }
 
-function roles(payload: JWTPayload, configuredClaims: string): string[] {
+function configuredRoles(payload: JsonRecord | JWTPayload, configuredClaims: string): string[] {
   const result = new Set<string>();
-
-  const realm = payload.realm_access;
-  if (realm && typeof realm === "object" && "roles" in realm) {
-    roleValues((realm as Record<string, unknown>).roles).forEach((role) => result.add(role));
-  }
-
-  const resource = payload.resource_access;
-  if (resource && typeof resource === "object") {
-    Object.values(resource as Record<string, unknown>).forEach((entry) => {
-      if (entry && typeof entry === "object" && "roles" in entry) {
-        roleValues((entry as Record<string, unknown>).roles).forEach((role) => result.add(role));
-      }
-    });
-  }
 
   csvValues(configuredClaims).forEach((path) => {
     roleValues(claim(payload, path)).forEach((role) => result.add(role));
   });
+
+  return [...result].sort();
+}
+
+function oidcRoles(payload: JWTPayload, configuredClaims: string): string[] {
+  const result = new Set<string>();
+
+  const realm = payload.realm_access;
+  if (isRecord(realm)) {
+    roleValues(realm.roles).forEach((role) => result.add(role));
+  }
+
+  const resource = payload.resource_access;
+  if (isRecord(resource)) {
+    Object.values(resource).forEach((entry) => {
+      if (isRecord(entry)) {
+        roleValues(entry.roles).forEach((role) => result.add(role));
+      }
+    });
+  }
+
+  configuredRoles(payload, configuredClaims).forEach((role) => result.add(role));
 
   return [...result].sort();
 }
@@ -75,11 +90,29 @@ function matchesSha256(token: string, expectedHex: string | undefined): boolean 
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+function baseUrl(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+async function fetchJson(url: string, init: RequestInit): Promise<JsonRecord> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    throw unauthorized("Clerk OAuth token validation failed.");
+  }
+
+  const body: unknown = await response.json();
+  if (!isRecord(body)) {
+    throw unauthorized("Clerk OAuth token validation failed.");
+  }
+
+  return body;
+}
+
 export class Auth implements Authenticator {
   private readonly jwks?: ReturnType<typeof createRemoteJWKSet>;
 
   constructor(private readonly env: Environment) {
-    if (env.AUTH_MODE !== "api_token") {
+    if (env.AUTH_MODE === "oidc" || env.AUTH_MODE === "dual") {
       this.jwks = createRemoteJWKSet(new URL(env.OIDC_JWKS_URL!));
     }
   }
@@ -97,6 +130,10 @@ export class Auth implements Authenticator {
 
     if (this.env.AUTH_MODE === "api_token") {
       throw unauthorized("Access token validation failed.");
+    }
+
+    if (this.env.AUTH_MODE === "clerk_oauth") {
+      return this.verifyClerkOauth(token);
     }
 
     return this.verifyOidc(token);
@@ -123,12 +160,68 @@ export class Auth implements Authenticator {
 
       return {
         subject: payload.sub,
-        roles: roles(payload, this.env.OIDC_ROLE_CLAIMS),
+        roles: oidcRoles(payload, this.env.OIDC_ROLE_CLAIMS),
         scopes,
       };
     } catch (error) {
       if (error instanceof Error && error.name === "AppError") throw error;
       throw unauthorized("Access token validation failed.");
+    }
+  }
+
+  private async verifyClerkOauth(token: string): Promise<Principal> {
+    const frontendApiUrl = this.env.CLERK_FRONTEND_API_URL;
+    const clientId = this.env.CLERK_OAUTH_CLIENT_ID;
+    const clientSecret = this.env.CLERK_OAUTH_CLIENT_SECRET;
+
+    if (!frontendApiUrl || !clientId || !clientSecret) {
+      throw unauthorized("Clerk OAuth authentication is not configured.");
+    }
+
+    try {
+      const credentials = Buffer.from(`${clientId}:${clientSecret}`, "utf8").toString("base64");
+      const tokenInfo = await fetchJson(`${baseUrl(frontendApiUrl)}/oauth/token_info`, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ token }),
+      });
+
+      if (tokenInfo.active !== true) {
+        throw unauthorized("Clerk OAuth token is inactive.");
+      }
+
+      if (tokenInfo.client_id !== clientId) {
+        throw unauthorized("Clerk OAuth token has an unexpected client_id.");
+      }
+
+      const scopes = [...new Set([...scopeValues(tokenInfo.scope), ...scopeValues(tokenInfo.scp)])].sort();
+      if (!scopes.includes(this.env.CLERK_REQUIRED_SCOPE)) {
+        throw unauthorized(`Clerk OAuth token is missing scope "${this.env.CLERK_REQUIRED_SCOPE}".`);
+      }
+
+      const userInfo = await fetchJson(`${baseUrl(frontendApiUrl)}/oauth/userinfo`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const subject = typeof userInfo.sub === "string" && userInfo.sub ? userInfo.sub : tokenInfo.sub;
+      if (typeof subject !== "string" || !subject) {
+        throw unauthorized("Clerk OAuth token is missing subject.");
+      }
+
+      return {
+        subject,
+        roles: configuredRoles({ ...tokenInfo, ...userInfo }, this.env.CLERK_ROLE_CLAIMS),
+        scopes,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AppError") throw error;
+      throw unauthorized("Clerk OAuth token validation failed.");
     }
   }
 }
