@@ -1,63 +1,104 @@
-# Runner SSH
+# ReLead Ops
 
-OIDC/OAuth-protected, **allowlisted** SSH task runner for GPT Actions. It also supports a separately configured static Bearer token for controlled machine access or an OAuth migration.
+Secure operations control plane for ReLead infrastructure, SSH targets, GitHub Codespaces and deployment automation.
 
-It can run configured tasks on:
+ReLead Ops evolves the original Runner SSH into an admin platform backed by Supabase and deployable on Render.
 
-- an existing server or laptop through SSH;
-- an already-running GitHub Codespace through `gh codespace ssh`.
+It can run configured, allowlisted tasks on:
+
+- existing servers or laptops through SSH;
+- GitHub Codespaces through `gh codespace ssh`;
+- future Tailscale and Cloudflare Tunnel targets;
+- future deployment and infrastructure integrations.
 
 It is not a generic remote shell.
 
 ## Safety boundary
 
-GPT Actions cannot submit a command, host, port, username, password, private key or 1Password reference. The deployment configuration defines every target and fixed task:
+Commands remain allowlisted and require explicit confirmation before execution:
 
 ```text
 list -> plan -> explicit EJECUTAR -> execute -> read redacted log
 ```
 
-The included task collections are:
+GPT Actions, users or external clients cannot submit arbitrary hostnames, usernames, passwords, private keys or raw commands. Production configuration defines the allowed targets, commands and permissions.
 
-- `repository`: `repo.status`, `repo.lint`, `repo.typecheck`, `repo.test`, `repo.build`
-- `system`: `system.info`, `service.status`, `docker.ps`
+## Supabase-powered admin layer
 
-System tasks invoke a target-local `/usr/local/bin/runner-task` wrapper. See [docs/SECURITY.md](docs/SECURITY.md).
+The ReLead Ops admin layer uses Supabase for:
+
+- Supabase Auth;
+- profiles and roles;
+- targets;
+- commands;
+- executions;
+- health checks;
+- audit logs;
+- realtime dashboard events.
+
+Apply the initial schema from:
+
+```text
+supabase/migrations/0001_runner_admin.sql
+```
+
+Production rollout guide:
+
+```text
+docs/RELEAD_OPS_PRODUCTION.md
+```
 
 ## Authentication modes
 
-The Runner always expects an `Authorization: Bearer <token>` header. Set `AUTH_MODE` in Render:
+The current runner API still supports:
 
-- `oidc` — signed OIDC access tokens only; default.
-- `api_token` — static Bearer token only. The server stores only `RUNNER_API_TOKEN_SHA256`.
-- `dual` — accepts either a static Bearer token or a signed OIDC access token. Use this for migration.
+- `oidc` — signed OIDC access tokens only;
+- `api_token` — static Bearer token hash only;
+- `dual` — accepts either OIDC JWTs or the static Bearer token;
+- `clerk_oauth` — legacy Clerk migration mode.
 
-OIDC remains provider-agnostic. The verifier checks issuer, JWKS signature, audience, required scope and roles. It supports Keycloak role claims plus generic configurable claims such as Clerk's `roles` or `org_role`. See [docs/CLERK.md](docs/CLERK.md).
+For the new Admin UI, prefer Supabase Auth. Clerk should be treated as deprecated for this project.
 
 ## Local verification
 
 ```bash
 cp .env.example .env
-# Fill OIDC variables or choose AUTH_MODE=api_token and configure the token digest.
 npm install --include=prod --include=dev
 npm run check
 npm test
 ```
 
-## OAuth, static Bearer tokens, and 1Password
-
-- Configure the OAuth browser flow in the GPT Actions editor.
-- For Clerk, configure an OAuth application that issues signed JWT access tokens and use [docs/CLERK.md](docs/CLERK.md).
-- For static Bearer mode, generate the raw token outside the repository, hash it with SHA-256, and store only `RUNNER_API_TOKEN_SHA256` in Render. The raw token goes only in the GPT Action API-key configuration.
-- 1Password Service Account references remain server-side in `config/runner.yaml`.
-- Never commit `OP_SERVICE_ACCOUNT_TOKEN`, raw static tokens, OAuth client secrets, GitHub tokens, passwords or private keys.
-
-## GPT Action schema
-
-Import [openapi/gpt-actions.yaml](openapi/gpt-actions.yaml), change the server URL to the final HTTPS Runner domain, then configure OAuth or Bearer API-key authentication in the GPT Actions editor.
-
-Available actions: `listSshCollections`, `getSshCollection`, `listSshTargets`, `getSshTarget`, `planSshTask`, `confirmSshJob`, `getSshJob`, `getSshJobLog`, `cancelSshJob`.
-
 ## Deployment
 
-Render Blueprint is included, but `autoDeploy: false` is set. See [docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md).
+Render Blueprint is included in `render.yaml`.
+
+Recommended service name:
+
+```text
+relead-ops-api
+```
+
+Recommended domain:
+
+```text
+ops.relead.com.mx
+```
+
+Required production variables are listed in `docs/RELEAD_OPS_PRODUCTION.md`.
+
+## Branding
+
+Name: **ReLead Ops**
+
+Positioning:
+
+```text
+A secure operations control plane for ReLead infrastructure, SSH targets, Codespaces and deployment automation.
+```
+
+Suggested visual system:
+
+- dark admin interface;
+- cyan/electric blue accent;
+- shield + terminal prompt + connected nodes;
+- technical but clean typography.
