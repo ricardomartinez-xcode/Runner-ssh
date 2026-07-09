@@ -1,13 +1,13 @@
 services:
   - type: web
-    name: runner-ssh
+    name: relead-ops-api
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     autoDeploy: false
     disk:
-      name: runner-ssh-data
+      name: relead-ops-data
       mountPath: /var/data
       sizeGB: 1
     envVars:
@@ -35,5 +35,13 @@ services:
         sync: false
       - key: RUNNER_API_TOKEN_ROLES
         value: runner.operator
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SSH_KEY_ENCRYPTION_SECRET
+        sync: false
       - key: OP_SERVICE_ACCOUNT_TOKEN
         sync: false
