@@ -1,3 +1,4 @@
+import { AdminService } from "./admin.js";
 import { Auth } from "./auth.js";
 import { app } from "./app.js";
 import { loadEnvironment, loadRunnerConfig } from "./config.js";
@@ -14,5 +15,5 @@ const store = new FileStore(env.DATA_DIR);
 await store.init();
 
 const jobs = new Jobs(env, registry, store, new Executors(new Secrets()));
-const server = app({ env, auth: new Auth(env), registry, jobs });
+const server = app({ env, auth: new Auth(env), registry, jobs, admin: new AdminService() });
 await server.listen({ host: env.HOST, port: env.PORT });

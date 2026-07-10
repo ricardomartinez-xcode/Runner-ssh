@@ -1,6 +1,7 @@
 import Fastify, { type FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import type { Authenticator } from "./auth.js";
+import { registerAdminRoutes, type AdminService } from "./admin.js";
 import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { AppError, forbidden } from "./errors.js";
@@ -43,7 +44,7 @@ function operator(request: FastifyRequest, env: Environment): Principal {
   return value;
 }
 
-export function app(deps: { env: Environment; auth: Authenticator; registry: Registry; jobs: Jobs }) {
+export function app(deps: { env: Environment; auth: Authenticator; registry: Registry; jobs: Jobs; admin: AdminService }) {
   const server = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization"] },
   });
@@ -55,12 +56,14 @@ export function app(deps: { env: Environment; auth: Authenticator; registry: Reg
     return reply.code(500).send({ error: "internal_error", message: "Internal server error." });
   });
 
-  server.get("/health", async () => ({ status: "ok", service: "runner-ssh" }));
+  server.get("/health", async () => ({ status: "ok", service: "relead-ops", admin: deps.admin.enabled ? "configured" : "disabled" }));
 
   server.addHook("onRequest", async (request) => {
-    if (request.url === "/health") return;
+    if (request.url === "/health" || request.url.startsWith("/admin")) return;
     request.principal = await deps.auth.verify(request.headers.authorization);
   });
+
+  registerAdminRoutes(server, deps.admin);
 
   server.get("/v1/collections", async (request) => ({ collections: deps.registry.listCollections(reader(request, deps.env)) }));
   server.get("/v1/collections/:collectionId", async (request) => deps.registry.getCollection(reader(request, deps.env), path(request, "collectionId")));
