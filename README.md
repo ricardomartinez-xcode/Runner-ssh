@@ -1,104 +1,95 @@
 # ReLead Ops
 
-Secure operations control plane for ReLead infrastructure, SSH targets, GitHub Codespaces and deployment automation.
+ReLead Ops is a production-oriented operations control plane for approved SSH work. It runs on Render, uses Supabase for auth/data/audit/configuration, and keeps Cloudflare as the preferred DNS and security edge.
 
-ReLead Ops evolves the original Runner SSH into an admin platform backed by Supabase and deployable on Render.
+It is not a generic shell. Commands must exist in the command catalog, be assigned to a target, pass role checks, and be confirmed with `EJECUTAR`. High-risk or destructive commands go through admin approval before the worker can execute them.
 
-It can run configured, allowlisted tasks on:
+## Architecture
 
-- existing servers or laptops through SSH;
-- GitHub Codespaces through `gh codespace ssh`;
-- future Tailscale and Cloudflare Tunnel targets;
-- future deployment and infrastructure integrations.
+- `relead-ops-web`: Fastify UI/API, Supabase Auth, approvals, target onboarding, command catalog, audit, health dashboard and log streaming.
+- `relead-ops-worker`: background worker that atomically claims confirmed queued jobs from Supabase, executes SSH, sends heartbeats, writes redacted log events, retries interrupted jobs and runs health checks.
+- Supabase: `profiles`, `targets`, `commands`, `target_commands`, `executions`, `execution_log_events`, `health_checks`, `audit_logs`, `target_secrets`, permission tables and RPC claim functions.
+- Render: Docker web service plus Docker worker service from `render.yaml`.
+- Cloudflare: DNS, HTTPS, WAF/rate limiting and optional Access in front of `ops.relead.com.mx`.
 
-It is not a generic remote shell.
-
-## Safety boundary
-
-Commands remain allowlisted and require explicit confirmation before execution:
+## Safety Boundary
 
 ```text
-list -> plan -> explicit EJECUTAR -> execute -> read redacted log
+catalog -> assign target -> plan -> EJECUTAR -> approval if needed -> worker claim -> SSH -> redacted logs
 ```
 
-GPT Actions, users or external clients cannot submit arbitrary hostnames, usernames, passwords, private keys or raw commands. Production configuration defines the allowed targets, commands and permissions.
+Production rules:
 
-## Supabase-powered admin layer
+- no arbitrary host/user/command execution endpoint;
+- no `StrictHostKeyChecking=no`;
+- no secrets returned to the browser;
+- service role key is server-side only;
+- managed credentials are encrypted with AES-256-GCM using `SSH_KEY_ENCRYPTION_SECRET`;
+- stdout/stderr are redacted and bounded before storage/streaming;
+- destructive commands are cataloged as high risk and require approval.
 
-The ReLead Ops admin layer uses Supabase for:
-
-- Supabase Auth;
-- profiles and roles;
-- targets;
-- commands;
-- executions;
-- health checks;
-- audit logs;
-- realtime dashboard events.
-
-Apply the initial schema from:
-
-```text
-supabase/migrations/0001_runner_admin.sql
-```
-
-Production rollout guide:
-
-```text
-docs/RELEAD_OPS_PRODUCTION.md
-```
-
-## Authentication modes
-
-The current runner API still supports:
-
-- `oidc` — signed OIDC access tokens only;
-- `api_token` — static Bearer token hash only;
-- `dual` — accepts either OIDC JWTs or the static Bearer token;
-- `clerk_oauth` — legacy Clerk migration mode.
-
-For the new Admin UI, prefer Supabase Auth. Clerk should be treated as deprecated for this project.
-
-## Local verification
+## Local Verification
 
 ```bash
-cp .env.example .env
-npm install --include=prod --include=dev
+npm ci
 npm run check
 npm test
+docker build -t relead-ops:local .
 ```
 
-## Deployment
+## Render Commands
 
-Render Blueprint is included in `render.yaml`.
-
-Recommended service name:
-
-```text
-relead-ops-api
+```bash
+npm run start:web
+npm run start:worker
+npm run dev:web
+npm run dev:worker
 ```
 
-Recommended domain:
+## Required Production Variables
 
-```text
-ops.relead.com.mx
+Minimum:
+
+```env
+SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=
+SUPABASE_SECRET_KEY=
+SSH_KEY_ENCRYPTION_SECRET=
+AUTH_MODE=dual
+OIDC_ISSUER_URL=
+OIDC_JWKS_URL=
+OIDC_AUDIENCE=
+RUNNER_API_TOKEN_SHA256=
+RUNNER_API_TOKEN_ROLES=runner.operator
 ```
 
-Required production variables are listed in `docs/RELEAD_OPS_PRODUCTION.md`.
+Worker:
 
-## Branding
-
-Name: **ReLead Ops**
-
-Positioning:
-
-```text
-A secure operations control plane for ReLead infrastructure, SSH targets, Codespaces and deployment automation.
+```env
+WORKER_ID=relead-ops-worker-render
+WORKER_POLL_INTERVAL_MS=2500
+WORKER_LOCK_SECONDS=90
+WORKER_HEARTBEAT_INTERVAL_MS=10000
+WORKER_STALE_SECONDS=300
+HEALTH_CHECK_INTERVAL_MS=300000
+MAX_CONCURRENT_JOBS=2
+MAX_JOB_DURATION_SECONDS=300
+MAX_LOG_BYTES=65536
 ```
 
-Suggested visual system:
+Optional:
 
-- dark admin interface;
-- cyan/electric blue accent;
-- shield + terminal prompt + connected nodes;
-- technical but clean typography.
+```env
+OP_SERVICE_ACCOUNT_TOKEN=
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX=600
+```
+
+## Documentation
+
+- [Production rollout](docs/RELEAD_OPS_PRODUCTION.md)
+- [Security model](docs/SECURITY.md)
+- [Runbook](docs/RUNBOOK.md)
+- [Tailscale architecture](docs/TAILSCALE.md)
+- [ReleadServer setup](docs/RELEADSERVER_SETUP.md)
+- [Cloudflare production](docs/CLOUDFLARE_PRODUCTION.md)
