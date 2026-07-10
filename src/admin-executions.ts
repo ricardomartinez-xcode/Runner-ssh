@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AdminService } from "./admin.js";
 import { AppError, forbidden } from "./errors.js";
+import { readManagedCredential } from "./target-secrets.js";
 
 type AdminPrincipal = Awaited<ReturnType<AdminService["principal"]>>;
 type JsonRecord = Record<string, unknown>;
@@ -45,8 +46,9 @@ function rendered(target: TargetRow, command: CommandRow): string {
   return target.working_directory ? `cd -- ${quote(target.working_directory)} && ${command.command_template}` : command.command_template;
 }
 
-async function secret(reference: string | null): Promise<string | undefined> {
+async function secret(admin: AdminService, reference: string | null): Promise<string | undefined> {
   if (!reference) return undefined;
+  if (reference.startsWith("MANAGED:")) return readManagedCredential(admin, reference);
   const envName = reference.startsWith("RENDER_ENV:") ? reference.slice(11) : reference.startsWith("ENV:") ? reference.slice(4) : undefined;
   if (envName !== undefined) {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(envName)) throw new AppError(400, "invalid_secret_ref", "Invalid environment secret reference.");
@@ -66,10 +68,10 @@ async function secret(reference: string | null): Promise<string | undefined> {
       child.on("close", (code) => code === 0 && output.trim() ? resolve(output.trim()) : reject(new AppError(500, "secret_resolution_failed", "Credential resolution failed.")));
     });
   }
-  throw new AppError(400, "invalid_secret_ref", "Use ENV:, RENDER_ENV:, or 1PASSWORD:.");
+  throw new AppError(400, "invalid_secret_ref", "Use a managed credential, a Render environment variable, or an advanced reference.");
 }
 
-async function execute(target: TargetRow, command: CommandRow): Promise<{ stdout: string; stderr: string; exitCode: number; durationMs: number }> {
+async function execute(admin: AdminService, target: TargetRow, command: CommandRow): Promise<{ stdout: string; stderr: string; exitCode: number; durationMs: number }> {
   if (!["ssh", "tailscale", "cloudflare_tunnel"].includes(target.type)) throw new AppError(400, "unsupported_target", "Unsupported SSH target type.");
   if (!target.known_hosts?.trim()) throw new AppError(400, "known_hosts_required", "A known_hosts entry is required.");
   if (target.auth_type === "token") throw new AppError(400, "unsupported_auth", "Token authentication is not supported for SSH.");
@@ -77,7 +79,7 @@ async function execute(target: TargetRow, command: CommandRow): Promise<{ stdout
   const dir = await mkdtemp(join(tmpdir(), "relead-ops-"));
   const knownHosts = join(dir, "known_hosts");
   const keyFile = join(dir, "identity");
-  const credential = target.auth_type === "agent" ? undefined : await secret(target.secret_ref);
+  const credential = target.auth_type === "agent" ? undefined : await secret(admin, target.secret_ref);
   await writeFile(knownHosts, `${target.known_hosts.trim()}\n`, { mode: 0o600 });
   if (target.auth_type === "private_key") {
     if (!credential) throw new AppError(500, "secret_resolution_failed", "Private key is missing.");
@@ -165,7 +167,7 @@ export function registerExecutionRoutes(server: FastifyInstance, admin: AdminSer
 
     void (async () => {
       try {
-        const result = await execute(target, command);
+        const result = await execute(admin, target, command);
         const status = result.exitCode === 0 ? "succeeded" : "failed";
         await admin.rest("executions", { method: "PATCH", query: `id=eq.${encodeURIComponent(id)}`, body: {
           status, stdout: result.stdout, stderr: result.stderr, exit_code: result.exitCode,
