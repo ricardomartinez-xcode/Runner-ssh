@@ -11,6 +11,7 @@ import type { Principal } from "./types.js";
 import { AppError, forbidden } from "./errors.js";
 import type { Registry } from "./registry.js";
 import type { Jobs } from "./jobs.js";
+import { registerSecurity } from "./security.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -59,6 +60,8 @@ export function app(deps: { env: Environment; auth: Authenticator; registry: Reg
     server.log.error(error);
     return reply.code(500).send({ error: "internal_error", message: "Internal server error." });
   });
+
+  registerSecurity(server, deps.env);
 
   server.get("/health", async () => ({ status: "ok", service: "relead-ops", admin: deps.admin.enabled ? "configured" : "disabled" }));
 
