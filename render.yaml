@@ -1,9 +1,10 @@
 services:
   - type: web
-    name: relead-ops-api
+    name: relead-ops-web
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
+    dockerCommand: npm run start:web
     healthCheckPath: /health
     autoDeploy: false
     disk:
@@ -47,3 +48,60 @@ services:
         sync: false
       - key: OP_SERVICE_ACCOUNT_TOKEN
         sync: false
+      - key: MAX_CONCURRENT_JOBS
+        value: "2"
+      - key: MAX_JOB_DURATION_SECONDS
+        value: "300"
+      - key: MAX_LOG_BYTES
+        value: "65536"
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: RATE_LIMIT_MAX
+        value: "600"
+
+  - type: worker
+    name: relead-ops-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: npm run start:worker
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: AUTH_MODE
+        value: api_token
+      - key: RUNNER_API_TOKEN_SHA256
+        sync: false
+      - key: RUNNER_API_TOKEN_ROLES
+        value: runner.operator
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SSH_KEY_ENCRYPTION_SECRET
+        sync: false
+      - key: OP_SERVICE_ACCOUNT_TOKEN
+        sync: false
+      - key: WORKER_ID
+        value: relead-ops-worker-render
+      - key: WORKER_POLL_INTERVAL_MS
+        value: "2500"
+      - key: WORKER_LOCK_SECONDS
+        value: "90"
+      - key: WORKER_HEARTBEAT_INTERVAL_MS
+        value: "10000"
+      - key: WORKER_STALE_SECONDS
+        value: "300"
+      - key: HEALTH_CHECK_INTERVAL_MS
+        value: "300000"
+      - key: MAX_CONCURRENT_JOBS
+        value: "2"
+      - key: MAX_JOB_DURATION_SECONDS
+        value: "300"
+      - key: MAX_LOG_BYTES
+        value: "65536"

@@ -119,6 +119,24 @@ export class AdminService {
     const text = await response.text();
     return text ? JSON.parse(text) : null;
   }
+
+  async rpc(functionName: string, body: Record<string, unknown> = {}): Promise<unknown> {
+    const response = await fetch(`${this.url}/rest/v1/rpc/${functionName}`, {
+      method: "POST",
+      headers: {
+        apikey: this.secretKey,
+        Authorization: `Bearer ${this.secretKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new AppError(response.status, "supabase_error", message || "Supabase RPC request failed.");
+    }
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  }
 }
 
 export function registerAdminRoutes(server: FastifyInstance, admin: AdminService): void {
@@ -211,6 +229,16 @@ export function registerAdminRoutes(server: FastifyInstance, admin: AdminService
   server.get("/admin/api/health", async (request) => {
     await admin.principal(request);
     return { health: await admin.rest("health_checks", { query: "select=*&order=checked_at.desc&limit=200" }) };
+  });
+
+  server.get("/admin/api/users", async (request) => {
+    const principal = await admin.principal(request);
+    requireRole(principal, ["admin"]);
+    return {
+      users: await admin.rest("profiles", { query: "select=id,email,full_name,role,created_at,updated_at&order=email.asc" }),
+      target_permissions: await admin.rest("target_permissions", { query: "select=*&limit=500" }),
+      command_permissions: await admin.rest("command_permissions", { query: "select=*&limit=500" }),
+    };
   });
 }
 

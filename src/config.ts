@@ -84,6 +84,16 @@ const environment = z.object({
   MAX_JOB_DURATION_SECONDS: z.coerce.number().int().min(5).max(3600).default(300),
   MAX_LOG_BYTES: z.coerce.number().int().min(1024).max(1048576).default(65536),
   MAX_CONCURRENT_JOBS: z.coerce.number().int().min(1).max(10).default(2),
+
+  WORKER_ID: z.string().min(1).default(`worker-${process.pid}`),
+  WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(500).max(60_000).default(2500),
+  WORKER_LOCK_SECONDS: z.coerce.number().int().min(30).max(900).default(90),
+  WORKER_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(1000).max(60_000).default(10_000),
+  WORKER_STALE_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
+  HEALTH_CHECK_INTERVAL_MS: z.coerce.number().int().min(30_000).max(86_400_000).default(300_000),
+
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3_600_000).default(60_000),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(10).max(10_000).default(600),
 }).superRefine((value, ctx) => {
   if (value.AUTH_MODE === "oidc" || value.AUTH_MODE === "dual") {
     ([

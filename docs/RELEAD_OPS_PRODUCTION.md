@@ -1,31 +1,32 @@
-# ReLead Ops production rollout
+# ReLead Ops Production
 
-ReLead Ops is the evolution of Runner SSH into an infrastructure operations control plane.
+## Current Architecture
 
-It keeps the existing safe runner boundary:
+ReLead Ops runs as two Render services:
 
-```text
-list -> plan -> explicit EJECUTAR -> execute -> read redacted log
-```
+- `relead-ops-web`: Fastify UI/API, Supabase Auth, dashboards, target onboarding, approvals, audit and SSE log streaming.
+- `relead-ops-worker`: Supabase-backed background worker for SSH execution, health checks, retries and interrupted job recovery.
 
-And adds Supabase as the administrative source of truth for:
+Supabase is the coordination and audit backend. The worker claims jobs with `public.claim_execution()` using row locks and `SKIP LOCKED`, so two workers cannot claim the same execution.
 
-- users and roles;
-- SSH/Codespaces/Tailscale/Cloudflare targets;
-- command catalog;
-- execution history;
-- health dashboard;
-- audit logs.
+## Supabase
 
-## 1. Supabase setup
-
-Create a Supabase project and run:
+Run migrations in order:
 
 ```bash
-supabase/migrations/0001_runner_admin.sql
+supabase db push
 ```
 
-Then create the first admin user:
+Or apply:
+
+```text
+supabase/migrations/0001_runner_admin.sql
+supabase/migrations/0002_ssh_execution.sql
+supabase/migrations/0003_managed_credentials_and_catalog.sql
+supabase/migrations/0004_worker_approvals_permissions.sql
+```
+
+After first login, promote the first admin:
 
 ```sql
 update public.profiles
@@ -33,36 +34,21 @@ set role = 'admin'
 where email = 'ricardomartinez@relead.com.mx';
 ```
 
-Do this only after signing in once through Supabase Auth so the profile exists.
+## Render
 
-## 2. Auth decision
+Use `render.yaml`. It defines:
 
-For the Admin UI, use Supabase Auth.
+- `relead-ops-web`, `dockerCommand: npm run start:web`
+- `relead-ops-worker`, `dockerCommand: npm run start:worker`
 
-For the runner API, keep the current OIDC/api_token mode during migration. After the UI is stable, move execution requests to Supabase-issued sessions or a private worker token.
+Do not deploy this project to Vercel.
 
-Recommended production mode during transition:
-
-```env
-AUTH_MODE=dual
-```
-
-## 3. Render service
-
-Create or sync the Render Blueprint using `render.yaml`.
-
-Service name:
-
-```text
-relead-ops-api
-```
-
-Required environment variables:
+## Required Variables
 
 ```env
 SUPABASE_URL=
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_PUBLISHABLE_KEY=
+SUPABASE_SECRET_KEY=
 SSH_KEY_ENCRYPTION_SECRET=
 AUTH_MODE=dual
 OIDC_ISSUER_URL=
@@ -70,84 +56,56 @@ OIDC_JWKS_URL=
 OIDC_AUDIENCE=
 RUNNER_API_TOKEN_SHA256=
 RUNNER_API_TOKEN_ROLES=runner.operator
-OP_SERVICE_ACCOUNT_TOKEN=
-RUNNER_GITHUB_TOKEN=
+MAX_CONCURRENT_JOBS=2
+MAX_JOB_DURATION_SECONDS=300
+MAX_LOG_BYTES=65536
 ```
 
-Never commit private keys, raw tokens, passwords, OAuth secrets or Supabase service-role keys.
+Worker-specific:
 
-## 4. DNS and domain
+```env
+WORKER_ID=relead-ops-worker-render
+WORKER_POLL_INTERVAL_MS=2500
+WORKER_LOCK_SECONDS=90
+WORKER_HEARTBEAT_INTERVAL_MS=10000
+WORKER_STALE_SECONDS=300
+HEALTH_CHECK_INTERVAL_MS=300000
+```
 
-Recommended domain:
+## Deployment
+
+1. Apply Supabase migrations.
+2. Configure Render env vars on both services.
+3. Deploy `relead-ops-web`.
+4. Deploy `relead-ops-worker`.
+5. Verify `/health` on the web service.
+6. Sign in to `/admin`.
+7. Install the recommended command catalog.
+8. Add targets with `known_hosts` and a successful connection test.
+9. Confirm high-risk command approval flow before enabling production targets.
+
+## Backups and Recovery
+
+- Back up Supabase tables daily.
+- Back up `target_secrets` with the database, but keep `SSH_KEY_ENCRYPTION_SECRET` in Render secret storage.
+- If `SSH_KEY_ENCRYPTION_SECRET` is lost, managed credentials cannot be decrypted and must be rotated.
+- Interrupted jobs are requeued until `max_retries`; exhausted jobs are marked `failed` and `interrupted=true`.
+
+## Validation
+
+Before production:
+
+```bash
+npm run check
+npm test
+docker build -t relead-ops:production-check .
+```
+
+Then run one low-risk command against a staging target:
 
 ```text
-ops.relead.com.mx
+whoami
+hostname
+uptime
+df -h
 ```
-
-Point it to Render using the DNS records Render provides.
-
-## 5. Initial production checklist
-
-Before exposing the service publicly:
-
-- Supabase RLS enabled.
-- First admin promoted manually.
-- `SUPABASE_SERVICE_ROLE_KEY` stored only in Render.
-- Runner API protected by OIDC or static token hash.
-- No shell-free arbitrary command endpoint.
-- Only allowlisted commands.
-- High-risk commands require approval.
-- Audit logs enabled.
-- Render health check passes at `/health`.
-
-## 6. MVP phases
-
-### Phase A — Current branch
-
-- Rename project to ReLead Ops.
-- Add Supabase schema.
-- Add Render production variables.
-- Keep current runner API working.
-
-### Phase B — Admin UI
-
-Add a web UI with:
-
-- login;
-- dashboard;
-- targets CRUD;
-- commands CRUD;
-- execution history;
-- health cards.
-
-### Phase C — Worker integration
-
-Make the runner read targets and commands from Supabase instead of only `config/runner.yaml`.
-
-### Phase D — Advanced ops
-
-Add:
-
-- Tailscale-aware targets;
-- Cloudflare Tunnel targets;
-- Codespaces lifecycle actions;
-- realtime logs;
-- approval flow;
-- alerts.
-
-## 7. Branding direction
-
-Name: ReLead Ops
-
-Positioning:
-
-```text
-A secure operations control plane for ReLead infrastructure, SSH targets, Codespaces and deployment automation.
-```
-
-Visual idea:
-
-- dark interface;
-- electric blue / cyan accent;
-- terminal-inspired typography for technical areas;
-- shield + command prompt + network nodes as logo motif.
