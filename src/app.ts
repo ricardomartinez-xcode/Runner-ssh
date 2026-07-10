@@ -2,6 +2,7 @@ import Fastify, { type FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import type { Authenticator } from "./auth.js";
 import { registerAdminRoutes, type AdminService } from "./admin.js";
+import { registerExecutionRoutes } from "./admin-executions.js";
 import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { AppError, forbidden } from "./errors.js";
@@ -64,6 +65,7 @@ export function app(deps: { env: Environment; auth: Authenticator; registry: Reg
   });
 
   registerAdminRoutes(server, deps.admin);
+  registerExecutionRoutes(server, deps.admin);
 
   server.get("/v1/collections", async (request) => ({ collections: deps.registry.listCollections(reader(request, deps.env)) }));
   server.get("/v1/collections/:collectionId", async (request) => deps.registry.getCollection(reader(request, deps.env), path(request, "collectionId")));
