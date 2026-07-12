@@ -8,7 +8,7 @@ ReLead Ops
 
 1. Secure infrastructure command center.
 2. Operaciones seguras para infraestructura moderna.
-3. Control plane for SSH, Codespaces and deployments.
+3. Control plane for SSH and Cloudflare Tunnel operations.
 4. Your infrastructure, safely orchestrated.
 
 ## Brand personality

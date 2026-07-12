@@ -50,6 +50,40 @@ services:
         sync: false
       - key: OP_SERVICE_ACCOUNT_TOKEN
         sync: false
+      - key: RELEADSERVER_SSH_CREDENTIAL
+        sync: false
+      - key: TUNNEL_SERVICE_TOKEN_ID
+        sync: false
+      - key: TUNNEL_SERVICE_TOKEN_SECRET
+        sync: false
+      - key: BREAK_GLASS_ENABLED
+        value: "false"
+      - key: BREAK_GLASS_REQUIRE_CLOUDFLARE_ACCESS
+        value: "true"
+      - key: BREAK_GLASS_KEY_SHA256
+        sync: false
+      - key: BREAK_GLASS_SESSION_SECRET
+        sync: false
+      - key: BREAK_GLASS_SESSION_TTL_SECONDS
+        value: "600"
+      - key: BREAK_GLASS_MAX_SESSION_BYTES
+        value: "16777216"
+      - key: BREAK_GLASS_MAX_FAILED_ATTEMPTS
+        value: "5"
+      - key: BREAK_GLASS_LOCKOUT_SECONDS
+        value: "900"
+      - key: BREAK_GLASS_RENDER_PRIVATE_KEY
+        sync: false
+      - key: BREAK_GLASS_RENDER_SERVICE_ID
+        sync: false
+      - key: BREAK_GLASS_RENDER_SSH_HOST
+        sync: false
+      - key: BREAK_GLASS_RENDER_KNOWN_HOSTS
+        sync: false
+      - key: CLOUDFLARE_ACCESS_TEAM_DOMAIN
+        sync: false
+      - key: CLOUDFLARE_ACCESS_AUD
+        sync: false
       - key: MAX_CONCURRENT_JOBS
         value: "2"
       - key: MAX_JOB_DURATION_SECONDS
@@ -88,6 +122,12 @@ services:
       - key: SSH_KEY_ENCRYPTION_SECRET
         sync: false
       - key: OP_SERVICE_ACCOUNT_TOKEN
+        sync: false
+      - key: RELEADSERVER_SSH_CREDENTIAL
+        sync: false
+      - key: TUNNEL_SERVICE_TOKEN_ID
+        sync: false
+      - key: TUNNEL_SERVICE_TOKEN_SECRET
         sync: false
       - key: WORKER_ID
         value: relead-ops-worker-render

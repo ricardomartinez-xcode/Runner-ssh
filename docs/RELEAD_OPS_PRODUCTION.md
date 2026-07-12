@@ -24,6 +24,13 @@ supabase/migrations/0001_runner_admin.sql
 supabase/migrations/0002_ssh_execution.sql
 supabase/migrations/0003_managed_credentials_and_catalog.sql
 supabase/migrations/0004_worker_approvals_permissions.sql
+supabase/migrations/0005_ssh_cloudflare_targets_only.sql
+supabase/migrations/0006_worker_instances.sql
+supabase/migrations/0007_permission_enforcement.sql
+supabase/migrations/0008_per_target_job_lock.sql
+supabase/migrations/0009_backend_only_mutations.sql
+supabase/migrations/0010_worker_connection_tests.sql
+supabase/migrations/0011_command_safety_constraints.sql
 ```
 
 After first login, promote the first admin:
@@ -78,6 +85,23 @@ WORKER_STALE_SECONDS=300
 HEALTH_CHECK_INTERVAL_MS=300000
 ```
 
+Optional break-glass variables belong only to `relead-ops-web`. Keep the feature disabled until the path-specific Cloudflare Access policy and Render SSH key are verified:
+
+```env
+BREAK_GLASS_ENABLED=false
+BREAK_GLASS_REQUIRE_CLOUDFLARE_ACCESS=true
+BREAK_GLASS_KEY_SHA256=
+BREAK_GLASS_SESSION_SECRET=
+BREAK_GLASS_RENDER_PRIVATE_KEY=
+BREAK_GLASS_RENDER_SERVICE_ID=
+BREAK_GLASS_RENDER_SSH_HOST=
+BREAK_GLASS_RENDER_KNOWN_HOSTS=
+CLOUDFLARE_ACCESS_TEAM_DOMAIN=
+CLOUDFLARE_ACCESS_AUD=
+```
+
+See `docs/BREAK_GLASS.md`; `/bash` is deliberately not part of Supabase administrator authorization or the catalog execution flow.
+
 ## Deployment
 
 1. Apply Supabase migrations.
@@ -87,8 +111,11 @@ HEALTH_CHECK_INTERVAL_MS=300000
 5. Verify `/health` on the web service.
 6. Sign in to `/admin`.
 7. Install the recommended command catalog.
-8. Add targets with `known_hosts` and a successful connection test.
+8. Add only `ssh` or `cloudflare_tunnel` targets with `known_hosts` and a successful connection test.
+
+Connection tests are durable Supabase jobs claimed by `relead-ops-worker`. New targets are inserted disabled, and `enable_on_success` activates them only after the worker persists a successful SSH result.
 9. Confirm high-risk command approval flow before enabling production targets.
+10. Separately test Render native SSH before enabling the `/bash` break-glass proxy.
 
 ## Backups and Recovery
 

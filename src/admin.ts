@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError, forbidden } from "./errors.js";
+import { isValidSshHost, isValidSshUsername } from "./ssh-validation.js";
 
 type AdminRole = "admin" | "operator" | "viewer";
 type JsonRecord = Record<string, unknown>;
@@ -14,11 +15,11 @@ type AdminPrincipal = {
 
 const targetInput = z.object({
   name: z.string().min(1).max(120),
-  type: z.enum(["ssh", "codespace", "tailscale", "cloudflare_tunnel", "local"]),
-  host: z.string().min(1).max(255),
+  type: z.enum(["ssh", "cloudflare_tunnel"]),
+  host: z.string().min(1).max(255).refine((value) => isValidSshHost(value), "Invalid SSH hostname or IP address."),
   port: z.coerce.number().int().min(1).max(65535).default(22),
-  username: z.string().min(1).max(120),
-  auth_type: z.enum(["private_key", "password", "agent", "token"]).default("private_key"),
+  username: z.string().min(1).max(120).refine(isValidSshUsername, "Invalid SSH username."),
+  auth_type: z.enum(["private_key", "password", "private_key_password", "agent"]).default("private_key"),
   secret_ref: z.string().max(500).nullable().optional(),
   tags: z.array(z.string().min(1).max(50)).max(20).default([]),
   working_directory: z.string().max(500).nullable().optional(),
@@ -33,6 +34,18 @@ const commandInput = z.object({
   requires_approval: z.boolean().default(false),
   allowed_roles: z.array(z.enum(["admin", "operator", "viewer"])).min(1).default(["admin", "operator"]),
   enabled: z.boolean().default(true),
+  impact: z.string().max(500).nullable().optional(),
+  destructive: z.boolean().default(false),
+});
+
+const userPermissionsInput = z.object({
+  role: z.enum(["admin", "operator", "viewer"]),
+  environments: z.array(z.enum(["prod", "staging", "dev"])).max(3),
+  targets: z.array(z.object({
+    target_id: z.string().uuid(),
+    environment: z.enum(["prod", "staging", "dev"]),
+  })).max(500),
+  command_ids: z.array(z.string().uuid()).max(500),
 });
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -55,6 +68,28 @@ function idParam(request: FastifyRequest): string {
 
 function requireRole(principal: AdminPrincipal, roles: AdminRole[]): void {
   if (!roles.includes(principal.role)) throw forbidden("Insufficient ReLead Ops permissions.");
+}
+
+const dangerousCommandPattern = /(?:^|\s)(?:rm|mv|dd|mkfs|shutdown|reboot|poweroff|halt|kill|pkill|systemctl\s+(?:restart|stop|disable)|docker(?:\s+(?:compose|system|volume|container|image))?\s+(?:prune|down|restart|rm|up|pull)|git\s+(?:pull|reset|clean|checkout)|apt(?:-get)?\s+(?:upgrade|dist-upgrade|autoremove|install|remove)|npm\s+(?:run|test|exec|ci|install)|npx)\b/i;
+
+function enforceCommandSafety(input: z.infer<typeof commandInput>): z.infer<typeof commandInput> {
+  const dangerous = input.destructive || dangerousCommandPattern.test(input.command_template);
+  return {
+    ...input,
+    impact: input.impact ?? input.description ?? "May change target state or execute project-controlled code.",
+    risk_level: "high",
+    requires_approval: true,
+    allowed_roles: ["admin"],
+    destructive: dangerous,
+  };
+}
+
+async function auditMutation(admin: AdminService, principal: AdminPrincipal, action: string, entityType: string, entityId: string, metadata: JsonRecord = {}): Promise<void> {
+  await admin.rest("audit_logs", {
+    method: "POST",
+    body: { actor_id: principal.id, action, entity_type: entityType, entity_id: entityId, metadata },
+    prefer: "return=minimal",
+  });
 }
 
 export class AdminService {
@@ -140,7 +175,7 @@ export class AdminService {
 }
 
 export function registerAdminRoutes(server: FastifyInstance, admin: AdminService): void {
-  server.get("/admin", async (_request, reply) => reply.type("text/html; charset=utf-8").send(adminHtml()));
+  server.get("/admin", async (_request, reply) => reply.redirect("/admin/manage"));
   server.get("/admin/config", async () => admin.publicConfig());
 
   server.get("/admin/api/me", async (request) => {
@@ -167,6 +202,9 @@ export function registerAdminRoutes(server: FastifyInstance, admin: AdminService
         enabled: targetRows.filter((row) => isRecord(row) && row.enabled === true).length,
         online: [...latestByTarget.values()].filter((row) => row.status === "online").length,
         offline: [...latestByTarget.values()].filter((row) => row.status === "offline").length,
+        degraded: [...latestByTarget.values()].filter((row) => row.status === "degraded").length,
+        unknown: [...latestByTarget.values()].filter((row) => row.status === "unknown").length,
+        unchecked: Math.max(0, targetRows.length - latestByTarget.size),
       },
       targets,
       executions,
@@ -182,19 +220,27 @@ export function registerAdminRoutes(server: FastifyInstance, admin: AdminService
     const principal = await admin.principal(request);
     requireRole(principal, ["admin"]);
     const body = targetInput.parse(request.body);
-    const target = await admin.rest("targets", { method: "POST", body: { ...body, created_by: principal.id } });
+    const target = await admin.rest("targets", { method: "POST", body: { ...body, enabled: false, disabled_reason: "Legacy endpoint requires worker verification before activation.", created_by: principal.id } });
+    const row = Array.isArray(target) && isRecord(target[0]) ? target[0] : undefined;
+    if (row && typeof row.id === "string") await auditMutation(admin, principal, "target.created_legacy_disabled", "target", row.id);
     return reply.code(201).send({ target });
   });
   server.patch("/admin/api/targets/:id", async (request) => {
     const principal = await admin.principal(request);
     requireRole(principal, ["admin"]);
     const body = targetInput.partial().parse(request.body);
-    return { target: await admin.rest("targets", { method: "PATCH", query: `id=eq.${encodeURIComponent(idParam(request))}`, body }) };
+    const id = idParam(request);
+    const target = await admin.rest("targets", { method: "PATCH", query: `id=eq.${encodeURIComponent(id)}`, body: { ...body, enabled: false, disabled_reason: "Legacy update requires worker verification before activation." } });
+    await auditMutation(admin, principal, "target.updated_legacy_disabled", "target", id);
+    return { target };
   });
   server.delete("/admin/api/targets/:id", async (request, reply) => {
     const principal = await admin.principal(request);
     requireRole(principal, ["admin"]);
-    await admin.rest("targets", { method: "DELETE", query: `id=eq.${encodeURIComponent(idParam(request))}`, prefer: "return=minimal" });
+    const id = idParam(request);
+    await auditMutation(admin, principal, "target.deletion_requested_legacy", "target", id);
+    await admin.rest("targets", { method: "DELETE", query: `id=eq.${encodeURIComponent(id)}`, prefer: "return=minimal" });
+    await auditMutation(admin, principal, "target.deleted_legacy", "target", id);
     return reply.code(204).send();
   });
 
@@ -205,20 +251,31 @@ export function registerAdminRoutes(server: FastifyInstance, admin: AdminService
   server.post("/admin/api/commands", async (request, reply) => {
     const principal = await admin.principal(request);
     requireRole(principal, ["admin"]);
-    const body = commandInput.parse(request.body);
+    const body = enforceCommandSafety(commandInput.parse(request.body));
     const command = await admin.rest("commands", { method: "POST", body: { ...body, created_by: principal.id } });
+    const row = Array.isArray(command) && isRecord(command[0]) ? command[0] : undefined;
+    if (row && typeof row.id === "string") await auditMutation(admin, principal, "command.created", "command", row.id, { risk_level: body.risk_level, destructive: body.destructive });
     return reply.code(201).send({ command });
   });
   server.patch("/admin/api/commands/:id", async (request) => {
     const principal = await admin.principal(request);
     requireRole(principal, ["admin"]);
-    const body = commandInput.partial().parse(request.body);
-    return { command: await admin.rest("commands", { method: "PATCH", query: `id=eq.${encodeURIComponent(idParam(request))}`, body }) };
+    const id = idParam(request);
+    const currentValue = await admin.rest("commands", { query: `id=eq.${encodeURIComponent(id)}&select=*&limit=1` });
+    const current = Array.isArray(currentValue) && isRecord(currentValue[0]) ? currentValue[0] : undefined;
+    if (!current) throw new AppError(404, "not_found", "Command not found.");
+    const merged = enforceCommandSafety(commandInput.parse({ ...current, ...commandInput.partial().parse(request.body) }));
+    const command = await admin.rest("commands", { method: "PATCH", query: `id=eq.${encodeURIComponent(id)}`, body: merged });
+    await auditMutation(admin, principal, "command.updated", "command", id, { risk_level: merged.risk_level, destructive: merged.destructive });
+    return { command };
   });
   server.delete("/admin/api/commands/:id", async (request, reply) => {
     const principal = await admin.principal(request);
     requireRole(principal, ["admin"]);
-    await admin.rest("commands", { method: "DELETE", query: `id=eq.${encodeURIComponent(idParam(request))}`, prefer: "return=minimal" });
+    const id = idParam(request);
+    await auditMutation(admin, principal, "command.deletion_requested", "command", id);
+    await admin.rest("commands", { method: "DELETE", query: `id=eq.${encodeURIComponent(id)}`, prefer: "return=minimal" });
+    await auditMutation(admin, principal, "command.deleted", "command", id);
     return reply.code(204).send();
   });
 
@@ -236,24 +293,76 @@ export function registerAdminRoutes(server: FastifyInstance, admin: AdminService
     requireRole(principal, ["admin"]);
     return {
       users: await admin.rest("profiles", { query: "select=id,email,full_name,role,created_at,updated_at&order=email.asc" }),
+      organization_members: await admin.rest("organization_members", { query: "select=*&limit=500" }),
       target_permissions: await admin.rest("target_permissions", { query: "select=*&limit=500" }),
       command_permissions: await admin.rest("command_permissions", { query: "select=*&limit=500" }),
+      targets: await admin.rest("targets", { query: "select=id,name,environment,enabled&order=name.asc&limit=500" }),
+      commands: await admin.rest("commands", { query: "select=id,name,risk_level,enabled&order=name.asc&limit=500" }),
     };
   });
-}
 
-function adminHtml(): string {
-  return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ReLead Ops</title><style>
-:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#020617;color:#e5e7eb}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top right,#0c4a6e55,transparent 35%),#020617}.shell{max-width:1180px;margin:auto;padding:32px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}.brand{font-size:24px;font-weight:800}.brand span{color:#22d3ee}.muted{color:#94a3b8}.card{background:#0f172ad9;border:1px solid #1e293b;border-radius:16px;padding:20px;box-shadow:0 18px 50px #0005}.login{max-width:420px;margin:12vh auto}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.metric b{display:block;font-size:30px;margin-top:8px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}input,button{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#020617;color:#e5e7eb;margin-top:10px}button{background:#0891b2;border:0;font-weight:700;cursor:pointer}.row{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #1e293b}.pill{padding:3px 9px;border-radius:999px;background:#1e293b;font-size:12px}.ok{color:#22c55e}.bad{color:#ef4444}@media(max-width:800px){.grid,.cols{grid-template-columns:1fr}.shell{padding:18px}}
-</style></head><body><main class="shell"><div id="app"></div></main><script>
-const state={token:localStorage.getItem('relead_ops_token')||'',cfg:null};
-const app=document.getElementById('app');
-async function api(path,options={}){const r=await fetch(path,{...options,headers:{'Content-Type':'application/json',Authorization:'Bearer '+state.token,...options.headers}});if(r.status===204)return null;const j=await r.json();if(!r.ok)throw new Error(j.message||j.error||'Error');return j}
-function login(){app.innerHTML='<section class="card login"><div class="brand">ReLead <span>Ops</span></div><p class="muted">Centro seguro de operaciones de infraestructura.</p><form id="f"><input id="email" type="email" placeholder="Correo" required><input id="pass" type="password" placeholder="Contraseña" required><button>Iniciar sesión</button><p id="err" class="bad"></p></form></section>';document.getElementById('f').onsubmit=async e=>{e.preventDefault();try{const r=await fetch(state.cfg.supabaseUrl+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:state.cfg.publishableKey,'Content-Type':'application/json'},body:JSON.stringify({email:email.value,password:pass.value})});const j=await r.json();if(!r.ok)throw new Error(j.error_description||j.msg||'No fue posible iniciar sesión');state.token=j.access_token;localStorage.setItem('relead_ops_token',state.token);dashboard()}catch(x){err.textContent=x.message}}}
-async function dashboard(){try{const [me,d]=await Promise.all([api('/admin/api/me'),api('/admin/api/dashboard')]);const s=d.summary;app.innerHTML='<div class="top"><div><div class="brand">ReLead <span>Ops</span></div><div class="muted">'+me.user.email+' · '+me.user.role+'</div></div><button id="out" style="width:auto">Cerrar sesión</button></div><section class="grid">'+[['Targets',s.targets],['Activos',s.enabled],['Online',s.online],['Offline',s.offline]].map(x=>'<div class="card metric"><span class="muted">'+x[0]+'</span><b>'+x[1]+'</b></div>').join('')+'</section><section class="cols"><div class="card"><h2>Targets</h2>'+((d.targets||[]).map(t=>'<div class="row"><div><b>'+esc(t.name)+'</b><div class="muted">'+esc(t.type)+'</div></div><span class="pill">'+(t.enabled?'activo':'inactivo')+'</span></div>').join('')||'<p class="muted">Sin targets todavía.</p>')+'</div><div class="card"><h2>Últimas ejecuciones</h2>'+((d.executions||[]).map(x=>'<div class="row"><span>'+esc(x.status)+'</span><span class="muted">'+new Date(x.created_at).toLocaleString()+'</span></div>').join('')||'<p class="muted">Sin ejecuciones todavía.</p>')+'</div></section>';document.getElementById('out').onclick=()=>{localStorage.removeItem('relead_ops_token');state.token='';login()}}catch(e){localStorage.removeItem('relead_ops_token');state.token='';login()}}
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-fetch('/admin/config').then(r=>r.json()).then(c=>{state.cfg=c;if(!c.enabled){app.innerHTML='<section class="card login"><h1>ReLead Ops</h1><p class="bad">Supabase no está configurado en Render.</p></section>';return}state.token?dashboard():login()});
-</script></body></html>`;
+  server.put("/admin/api/users/:id/permissions", async (request) => {
+    const principal = await admin.principal(request);
+    requireRole(principal, ["admin"]);
+    const userId = idParam(request);
+    const input = userPermissionsInput.parse(request.body);
+    const profiles = await admin.rest("profiles", { query: `id=eq.${encodeURIComponent(userId)}&select=id,email,role&limit=1` });
+    const profile = Array.isArray(profiles) && isRecord(profiles[0]) ? profiles[0] : undefined;
+    if (!profile) throw new AppError(404, "not_found", "User profile not found.");
+
+    if (profile.role === "admin" && input.role !== "admin") {
+      const admins = await admin.rest("profiles", { query: "role=eq.admin&select=id&limit=2" });
+      if (!Array.isArray(admins) || admins.length <= 1) throw new AppError(409, "last_admin", "The last administrator cannot be demoted.");
+    }
+
+    const environments = input.role === "admin" ? ["prod", "staging", "dev"] : [...new Set(input.environments)];
+    await admin.rest("profiles", {
+      method: "PATCH",
+      query: `id=eq.${encodeURIComponent(userId)}`,
+      body: { role: input.role, updated_at: new Date().toISOString() },
+      prefer: "return=minimal",
+    });
+    await admin.rest("organization_members", {
+      method: "POST",
+      query: "on_conflict=user_id",
+      body: { user_id: userId, role: input.role, environments, updated_at: new Date().toISOString() },
+      prefer: "resolution=merge-duplicates,return=minimal",
+    });
+
+    await admin.rest("target_permissions", { method: "DELETE", query: `user_id=eq.${encodeURIComponent(userId)}`, prefer: "return=minimal" });
+    if (input.role === "operator" && input.targets.length) {
+      await admin.rest("target_permissions", {
+        method: "POST",
+        body: input.targets.map((target) => ({ user_id: userId, target_id: target.target_id, environment: target.environment, can_execute: true, can_manage: false })),
+        prefer: "return=minimal",
+      });
+    }
+
+    await admin.rest("command_permissions", { method: "DELETE", query: `user_id=eq.${encodeURIComponent(userId)}`, prefer: "return=minimal" });
+    if (input.role === "operator" && input.command_ids.length) {
+      await admin.rest("command_permissions", {
+        method: "POST",
+        body: input.command_ids.map((commandId) => ({ user_id: userId, command_id: commandId, can_execute: true })),
+        prefer: "return=minimal",
+      });
+    }
+
+    await admin.rest("audit_logs", {
+      method: "POST",
+      body: {
+        actor_id: principal.id,
+        action: "user.permissions_updated",
+        entity_type: "profile",
+        entity_id: userId,
+        metadata: {
+          role: input.role,
+          environments,
+          target_ids: input.targets.map((target) => target.target_id),
+          command_ids: input.command_ids,
+        },
+      },
+      prefer: "return=minimal",
+    });
+    return { ok: true };
+  });
 }

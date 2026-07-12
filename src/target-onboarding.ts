@@ -7,13 +7,16 @@ export type TargetTypeOption = {
 };
 
 export type CredentialSource = "managed" | "environment" | "agent" | "reference";
-export type TargetAuthType = "private_key" | "password" | "agent" | "token";
+export type TargetAuthType = "private_key" | "password" | "private_key_password" | "agent";
 
 export type CredentialValidationInput = {
   authType: TargetAuthType;
   source: CredentialSource;
   credential?: string;
   credentialConfirmation?: string;
+  privateKey?: string;
+  password?: string;
+  passwordConfirmation?: string;
 };
 
 export type CredentialReferenceInput = {
@@ -33,8 +36,8 @@ export function availableTargetTypes(): TargetTypeOption[] {
     },
     {
       value: "cloudflare_tunnel",
-      label: "SSH via Cloudflare Tunnel o bastion",
-      help: "Usa SSH estricto hacia un host privado expuesto por túnel, bastion o relay ya operativo.",
+      label: "SSH via Cloudflare Tunnel",
+      help: "Usa SSH estricto hacia un host privado publicado por Cloudflare Tunnel.",
     },
   ];
 }
@@ -43,8 +46,21 @@ export function validateTargetCredential(input: CredentialValidationInput): void
   if (input.source !== "managed") return;
   if (input.authType === "agent") return;
   const credential = input.credential?.trim() ?? "";
+  const privateKey = input.privateKey?.trim() ?? "";
+  const password = input.password?.trim() ?? "";
+  if (input.authType === "private_key_password") {
+    if (!privateKey || !password) throw new AppError(400, "credential_required", "Enter both the private key and password.");
+    if (input.passwordConfirmation !== undefined && password !== input.passwordConfirmation) {
+      throw new AppError(400, "credential_confirmation_mismatch", "Password and confirmation must match.");
+    }
+    if (!privateKeyPattern.test(privateKey)) {
+      throw new AppError(400, "invalid_private_key", "The pasted value does not look like an OpenSSH or PEM private key.");
+    }
+    return;
+  }
   if (!credential) throw new AppError(400, "credential_required", "Enter the password or private key.");
-  if (input.authType === "password" && input.credentialConfirmation !== undefined && credential !== input.credentialConfirmation) {
+  const passwordConfirmation = input.passwordConfirmation ?? input.credentialConfirmation;
+  if (input.authType === "password" && passwordConfirmation !== undefined && credential !== passwordConfirmation) {
     throw new AppError(400, "credential_confirmation_mismatch", "Password and confirmation must match.");
   }
   if (input.authType === "private_key" && !privateKeyPattern.test(credential)) {

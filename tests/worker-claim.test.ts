@@ -3,6 +3,7 @@ import {
   executionCanBeClaimed,
   nextRetryPatch,
   workerHeartbeatPatch,
+  workerOwnershipFilter,
 } from "../src/worker-state.js";
 
 const now = new Date("2026-07-10T12:00:00.000Z");
@@ -73,5 +74,11 @@ describe("worker execution claim state", () => {
       worker_id: "worker-a",
       heartbeat_at: now.toISOString(),
     });
+  });
+
+  it("conditions worker updates on the running execution lease", () => {
+    expect(workerOwnershipFilter("execution-id", "worker/a")).toBe(
+      "id=eq.execution-id&status=eq.running&worker_id=eq.worker%2Fa",
+    );
   });
 });
