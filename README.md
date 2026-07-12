@@ -51,17 +51,23 @@ npm run dev:worker
 Minimum:
 
 ```env
-SUPABASE_URL=
+SUPABASE_URL=https://hmhmhpyksqufclqzjkxo.supabase.co
+SUPABASE_JWKS_URL=https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json
+SUPABASE_JWT_AUDIENCE=authenticated
 SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY=
 SSH_KEY_ENCRYPTION_SECRET=
-AUTH_MODE=dual
-OIDC_ISSUER_URL=
-OIDC_JWKS_URL=
-OIDC_AUDIENCE=
+AUTH_MODE=oidc
+OIDC_ISSUER_URL=https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1
+OIDC_JWKS_URL=https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json
+OIDC_AUDIENCE=authenticated
+OIDC_REQUIRED_SCOPE=
+OIDC_ROLE_CLAIMS=app_metadata.roles,app_metadata.role,roles,org_role
 RUNNER_API_TOKEN_SHA256=
 RUNNER_API_TOKEN_ROLES=runner.operator
 ```
+
+The Supabase JWKS endpoint currently publishes key id `41cd089a-c0fc-44fe-bc70-d71fb746a16f` with `alg=ES256`, `kty=EC` and `crv=P-256`. The JWKS is public verification material; keep only `SUPABASE_SECRET_KEY` and encryption secrets out of Git. Leave `OIDC_REQUIRED_SCOPE` blank for normal Supabase Auth access tokens unless you issue a custom scope claim.
 
 Worker:
 

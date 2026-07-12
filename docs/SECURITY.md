@@ -13,6 +13,7 @@ ReLead Ops is a catalog-driven runner, not a remote shell.
 - Managed credentials are encrypted with AES-256-GCM and a Render-only `SSH_KEY_ENCRYPTION_SECRET`.
 - Logs are redacted and truncated before persistence.
 - Web has security headers, CSP, clickjacking protection, no-cache admin pages and in-memory rate limiting. Cloudflare should enforce external WAF/rate limits.
+- Supabase JWT verification uses the public JWKS endpoint `https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json` and expects key id `41cd089a-c0fc-44fe-bc70-d71fb746a16f` for the current `ES256` signing key.
 
 ## Forbidden Patterns
 
