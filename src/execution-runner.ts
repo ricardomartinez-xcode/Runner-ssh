@@ -56,6 +56,22 @@ export type SshExecutionOptions = {
   onStderr?: (chunk: string, truncated: boolean) => Promise<void> | void;
 };
 
+export function cloudflareProxyCommand(target: Pick<TargetRow, "type">): string | undefined {
+  if (target.type !== "cloudflare_tunnel") return undefined;
+
+  const clientId = process.env.CF_ACCESS_CLIENT_ID?.trim();
+  const clientSecret = process.env.CF_ACCESS_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    throw new AppError(
+      500,
+      "cloudflare_access_not_configured",
+      "Cloudflare Access service-token credentials are missing.",
+    );
+  }
+
+  return "cloudflared access ssh --hostname %h";
+}
+
 function quote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -122,6 +138,8 @@ export async function runSshCommand(
     "-o", "ConnectTimeout=15",
     "-o", "LogLevel=ERROR",
   ];
+  const proxyCommand = cloudflareProxyCommand(target);
+  if (proxyCommand) args.push("-o", `ProxyCommand=${proxyCommand}`);
   if (target.auth_type === "private_key") args.push("-i", keyFile, "-o", "IdentitiesOnly=yes");
   args.push(`${target.username}@${target.host}`, commandText);
 
