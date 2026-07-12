@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Auth } from "../src/auth.js";
-import { loadEnvironment } from "../src/config.js";
+import { loadEnvironment, resolveOidcConfig } from "../src/config.js";
 
 const token = "test-runner-api-token-which-is-not-a-real-secret";
 const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
@@ -44,5 +44,30 @@ describe("Auth", () => {
 
   it("requires the static token settings in api_token mode", () => {
     expect(() => loadEnvironment({ AUTH_MODE: "api_token" })).toThrow();
+  });
+
+  it("derives OIDC JWT verification settings from Supabase project settings", () => {
+    const env = loadEnvironment({
+      AUTH_MODE: "oidc",
+      SUPABASE_URL: "https://hmhmhpyksqufclqzjkxo.supabase.co",
+      SUPABASE_JWKS_URL: "https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json",
+    });
+
+    expect(resolveOidcConfig(env)).toEqual({
+      issuerUrl: "https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1",
+      jwksUrl: "https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json",
+      audience: "authenticated",
+    });
+  });
+
+  it("allows Supabase JWT verification without a custom scope requirement", () => {
+    const env = loadEnvironment({
+      AUTH_MODE: "oidc",
+      SUPABASE_URL: "https://hmhmhpyksqufclqzjkxo.supabase.co",
+      OIDC_REQUIRED_SCOPE: "",
+    });
+
+    expect(env.OIDC_REQUIRED_SCOPE).toBeUndefined();
+    expect(resolveOidcConfig(env).jwksUrl).toBe("https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json");
   });
 });

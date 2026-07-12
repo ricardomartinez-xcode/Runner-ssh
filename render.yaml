@@ -23,27 +23,29 @@ services:
       - key: AUTH_MODE
         value: oidc
       - key: OIDC_ISSUER_URL
-        sync: false
+        value: https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1
       - key: OIDC_JWKS_URL
-        sync: false
+        value: https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json
       - key: OIDC_AUDIENCE
-        sync: false
+        value: authenticated
       - key: OIDC_REQUIRED_SCOPE
-        value: runner:ssh
+        value: ""
       - key: OIDC_ROLE_CLAIMS
-        value: roles,org_role
+        value: app_metadata.roles,app_metadata.role,roles,org_role
       - key: RUNNER_API_TOKEN_SHA256
         sync: false
       - key: RUNNER_API_TOKEN_ROLES
         value: runner.operator
       - key: SUPABASE_URL
-        sync: false
+        value: https://hmhmhpyksqufclqzjkxo.supabase.co
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
       - key: SUPABASE_JWKS_URL
-        sync: false
+        value: https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json
+      - key: SUPABASE_JWT_AUDIENCE
+        value: authenticated
       - key: SSH_KEY_ENCRYPTION_SECRET
         sync: false
       - key: OP_SERVICE_ACCOUNT_TOKEN
@@ -78,7 +80,7 @@ services:
       - key: RUNNER_API_TOKEN_ROLES
         value: runner.operator
       - key: SUPABASE_URL
-        sync: false
+        value: https://hmhmhpyksqufclqzjkxo.supabase.co
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: SUPABASE_SECRET_KEY

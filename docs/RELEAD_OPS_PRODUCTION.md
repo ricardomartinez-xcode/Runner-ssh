@@ -46,20 +46,26 @@ Do not deploy this project to Vercel.
 ## Required Variables
 
 ```env
-SUPABASE_URL=
+SUPABASE_URL=https://hmhmhpyksqufclqzjkxo.supabase.co
+SUPABASE_JWKS_URL=https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json
+SUPABASE_JWT_AUDIENCE=authenticated
 SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY=
 SSH_KEY_ENCRYPTION_SECRET=
-AUTH_MODE=dual
-OIDC_ISSUER_URL=
-OIDC_JWKS_URL=
-OIDC_AUDIENCE=
+AUTH_MODE=oidc
+OIDC_ISSUER_URL=https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1
+OIDC_JWKS_URL=https://hmhmhpyksqufclqzjkxo.supabase.co/auth/v1/.well-known/jwks.json
+OIDC_AUDIENCE=authenticated
+OIDC_REQUIRED_SCOPE=
+OIDC_ROLE_CLAIMS=app_metadata.roles,app_metadata.role,roles,org_role
 RUNNER_API_TOKEN_SHA256=
 RUNNER_API_TOKEN_ROLES=runner.operator
 MAX_CONCURRENT_JOBS=2
 MAX_JOB_DURATION_SECONDS=300
 MAX_LOG_BYTES=65536
 ```
+
+JWT validation uses the Supabase JWKS at `/auth/v1/.well-known/jwks.json`. The verified production key id is `41cd089a-c0fc-44fe-bc70-d71fb746a16f` (`ES256`, `EC`, `P-256`). Keep the JWKS URL in configuration, not the full JWKS JSON. It is public verification metadata; the service role key, publishable key and credential encryption secret remain Render-managed values.
 
 Worker-specific:
 
