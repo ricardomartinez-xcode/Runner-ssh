@@ -24,7 +24,7 @@ Apply migrations in order:
 
 ## Onboard A Target
 
-1. Open `/admin/manage-v2`.
+1. Open `/admin/manage`.
 2. Choose `SSH normal` or `SSH via Cloudflare Tunnel or bastion`.
 3. Enter host, port, username, environment and tags.
 4. Choose managed credential, Render variable, SSH Agent or advanced reference.
