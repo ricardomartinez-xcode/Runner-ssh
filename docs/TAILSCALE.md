@@ -2,22 +2,19 @@
 
 ## Decision
 
-ReLead Ops does not expose "Tailscale" as a direct target type in the UI for Render.
+ReLead Ops production target connectivity is limited to direct SSH and SSH through Cloudflare Tunnel. It does not expose "Tailscale" as a direct target type in the UI for Render.
 
 Reason: a Render Docker service cannot be assumed to have a persistent tailnet interface like `tailscale0`. Tailscale userspace networking is designed for containers without a tun device, but it behaves as a userspace proxy path and needs explicit process wiring. A normal `ssh 100.x.y.z` from the app container is reliable only when the worker process itself has real tailnet connectivity.
 
-Supported pattern today:
+Supported pattern today, only for explicitly verified networks:
 
 - Create the target as `SSH normal`.
 - Use a Tailscale IP or MagicDNS name only when `relead-ops-worker` is confirmed to reach the tailnet.
 - Keep `known_hosts` pinned for the actual host and port.
 
-Recommended production alternatives:
+Recommended production alternative:
 
-- Tailscale subnet router or bastion reachable from Render.
-- Cloudflare Tunnel to a private SSH bastion.
-- Reverse SSH tunnel from the private node to a hardened bastion.
-- Dedicated VPN/bastion outside Render.
+- Cloudflare Tunnel to the private SSH service, using a pinned SSH host key and a target type of `cloudflare_tunnel`.
 
 ## Render Notes
 
