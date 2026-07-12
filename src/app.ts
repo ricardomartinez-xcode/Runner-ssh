@@ -66,7 +66,7 @@ export function app(deps: { env: Environment; auth: Authenticator; registry: Reg
   server.get("/health", async () => ({ status: "ok", service: "relead-ops", admin: deps.admin.enabled ? "configured" : "disabled" }));
 
   server.addHook("onRequest", async (request, reply) => {
-    if (request.url === "/admin" || request.url === "/admin/") return reply.redirect("/admin/manage-v2");
+    if (request.url === "/admin" || request.url === "/admin/") return reply.redirect("/admin/manage");
     if (request.url === "/health" || request.url.startsWith("/admin")) return;
     request.principal = await deps.auth.verify(request.headers.authorization);
   });
