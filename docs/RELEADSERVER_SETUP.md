@@ -14,7 +14,9 @@
 - Root login: disabled
 - Pubkey auth: enabled
 - Password auth: enabled in current `sshd_config`
-- Firewall: `ufw` service is active; full rules were not changed
+- Firewall: `ufw` service is active; SSH `2222/tcp` is allowed only from LAN `192.168.3.0/24` and Tailscale `100.64.0.0/10`
+- Tailscale: active and online
+- Cloudflare Tunnel: not installed or configured on this host
 
 ## What Was Changed
 
@@ -35,6 +37,8 @@ No firewall rule was changed. SSH root login was not enabled. `StrictHostKeyChec
 
 ## Verified SSH Results
 
+Last verified: 2026-07-12.
+
 Loopback test:
 
 ```bash
@@ -46,17 +50,34 @@ Returned:
 ```text
 ricardo
 releadserver
-up 10 days...
-/dev/mapper/ubuntu--vg-ubuntu--lv 26G 11G 15G 43% /
+11:20:09 up 12 days, 6:03, load average: 1.21, 0.60, 0.23
+/dev/mapper/ubuntu--vg-ubuntu--lv 26G 14G 11G 57% /
 ```
 
 Tailscale IP test:
 
 ```bash
-ssh -i /home/ricardo/.ssh/relead_ops_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p 2222 ricardo@100.96.199.114 'whoami && hostname && uptime && df -h /'
+ssh -i /home/ricardo/.ssh/relead_ops_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -p 2222 ricardo@100.96.199.114 'whoami && hostname && uptime && df -h /'
 ```
 
 Returned the same successful result.
+
+Host key fingerprint from `ssh-keyscan -T 7 -p 2222 100.96.199.114`:
+
+```text
+256 SHA256:YupRBSxFaOWMWiE/6VFyWNDlWFCddh+oRV3be+C8rDo [100.96.199.114]:2222 (ED25519)
+```
+
+Firewall status:
+
+```text
+Status: active
+Default: deny (incoming), allow (outgoing), deny (routed)
+2222/tcp ALLOW IN 100.64.0.0/10
+2222/tcp ALLOW IN 192.168.3.0/24
+22/tcp ALLOW IN 100.64.0.0/10
+22/tcp on tailscale0 ALLOW IN Anywhere
+```
 
 ## known_hosts
 
@@ -95,18 +116,24 @@ Recommended fields:
 
 Keep it disabled until the Render worker is confirmed to reach `100.96.199.114:2222`.
 
-## Why It Is Not Registered Yet
+## Current Registration Status
 
-This Codex session does not have:
+SSH on this computer is configured and verified. The target is not yet registered in ReLead Ops production from this Codex session because the session does not have the required administrative credentials:
 
 ```text
-SUPABASE_URL
-SUPABASE_PUBLISHABLE_KEY
 SUPABASE_SECRET_KEY
 SSH_KEY_ENCRYPTION_SECRET
 ```
 
-Because those are missing, the target could not be written to Supabase and the private key could not be stored as a managed encrypted ReLead Ops credential from this environment.
+Without a Supabase service role key, the target cannot be written to Supabase. Without `SSH_KEY_ENCRYPTION_SECRET`, the private key cannot be stored as a managed encrypted ReLead Ops credential from this environment. As an alternative, store the private key as a Render secret named `RELEADSERVER_SSH_KEY` and set the target credential source to Render environment variable.
+
+Render connectivity is also not proven. The host is reachable over LAN and Tailscale, but the Render worker must have real connectivity to the tailnet, a bastion, a subnet router, a Cloudflare Tunnel TCP path, or another approved relay before the target can be enabled. There is no `cloudflared` service or tunnel configured on this host right now.
+
+Do not mark `ReleadServer` enabled in production until the worker can run this exact test successfully from its runtime network:
+
+```bash
+ssh -i "$RELEADSERVER_SSH_KEY_FILE" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -p 2222 ricardo@100.96.199.114 'whoami && hostname && uptime && df -h /'
+```
 
 ## How To Store The Secret
 
@@ -129,10 +156,10 @@ Do not commit or paste that private key into docs, logs or PR text.
 After creating the target, assign:
 
 ```text
-system.identity
-system.hostname
-system.uptime
-system.disk
+System identity
+Hostname
+Uptime
+Disk usage
 ```
 
 Then execute:
