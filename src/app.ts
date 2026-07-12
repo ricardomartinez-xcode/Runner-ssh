@@ -1,4 +1,5 @@
 import Fastify, { type FastifyRequest } from "fastify";
+import websocket from "@fastify/websocket";
 import { z, ZodError } from "zod";
 import type { Authenticator } from "./auth.js";
 import { registerAdminRoutes, type AdminService } from "./admin.js";
@@ -6,6 +7,7 @@ import { registerExecutionRoutes } from "./admin-executions.js";
 import { registerAdminUiRoutes } from "./admin-ui.js";
 import { registerImprovedTargetRoutes } from "./admin-targets-v2.js";
 import { registerCommandCatalogRoutes } from "./command-catalog.js";
+import { registerEmergencyConsoleRoutes } from "./emergency-console.js";
 import type { Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { AppError, forbidden } from "./errors.js";
@@ -51,8 +53,17 @@ function operator(request: FastifyRequest, env: Environment): Principal {
 
 export function app(deps: { env: Environment; auth: Authenticator; registry: Registry; jobs: Jobs; admin: AdminService }) {
   const server = Fastify({
-    logger: { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization"] },
+    logger: {
+      level: process.env.LOG_LEVEL ?? "info",
+      redact: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "req.headers['cf-access-jwt-assertion']",
+        "res.headers['set-cookie']",
+      ],
+    },
   });
+  void server.register(websocket, { options: { maxPayload: 64 * 1024 } });
 
   server.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) return reply.code(400).send({ error: "bad_request", message: "Request validation failed.", details: error.flatten() });
@@ -67,7 +78,7 @@ export function app(deps: { env: Environment; auth: Authenticator; registry: Reg
 
   server.addHook("onRequest", async (request, reply) => {
     if (request.url === "/admin" || request.url === "/admin/") return reply.redirect("/admin/manage");
-    if (request.url === "/health" || request.url.startsWith("/admin")) return;
+    if (request.url === "/health" || request.url.startsWith("/bash") || request.url.startsWith("/admin")) return;
     request.principal = await deps.auth.verify(request.headers.authorization);
   });
 
@@ -76,6 +87,9 @@ export function app(deps: { env: Environment; auth: Authenticator; registry: Reg
   registerAdminUiRoutes(server, deps.admin);
   registerImprovedTargetRoutes(server, deps.admin);
   registerCommandCatalogRoutes(server, deps.admin);
+  void server.register(async (scope) => {
+    registerEmergencyConsoleRoutes(scope, deps.admin, deps.env);
+  });
 
   server.get("/v1/collections", async (request) => ({ collections: deps.registry.listCollections(reader(request, deps.env)) }));
   server.get("/v1/collections/:collectionId", async (request) => deps.registry.getCollection(reader(request, deps.env), path(request, "collectionId")));
