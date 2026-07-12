@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import type { Environment } from "./config.js";
+import { resolveOidcConfig, type Environment } from "./config.js";
 import type { Principal } from "./types.js";
 import { unauthorized } from "./errors.js";
 
@@ -110,10 +110,12 @@ async function fetchJson(url: string, init: RequestInit): Promise<JsonRecord> {
 
 export class Auth implements Authenticator {
   private readonly jwks?: ReturnType<typeof createRemoteJWKSet>;
+  private readonly jwtConfig: ReturnType<typeof resolveOidcConfig>;
 
   constructor(private readonly env: Environment) {
+    this.jwtConfig = resolveOidcConfig(env);
     if (env.AUTH_MODE === "oidc" || env.AUTH_MODE === "dual") {
-      this.jwks = createRemoteJWKSet(new URL(env.OIDC_JWKS_URL!));
+      this.jwks = createRemoteJWKSet(new URL(this.jwtConfig.jwksUrl!));
     }
   }
 
@@ -124,7 +126,7 @@ export class Auth implements Authenticator {
       return {
         subject: "runner-api-token",
         roles: csvValues(this.env.RUNNER_API_TOKEN_ROLES),
-        scopes: [this.env.OIDC_REQUIRED_SCOPE],
+        scopes: this.env.OIDC_REQUIRED_SCOPE ? [this.env.OIDC_REQUIRED_SCOPE] : [],
       };
     }
 
@@ -140,8 +142,8 @@ export class Auth implements Authenticator {
   }
 
   private async verifyOidc(token: string): Promise<Principal> {
-    const issuer = this.env.OIDC_ISSUER_URL;
-    const audience = this.env.OIDC_AUDIENCE;
+    const issuer = this.jwtConfig.issuerUrl;
+    const audience = this.jwtConfig.audience;
     if (!this.jwks || !issuer || !audience) {
       throw unauthorized("OIDC authentication is not configured.");
     }
@@ -154,7 +156,7 @@ export class Auth implements Authenticator {
       }
 
       const scopes = [...new Set([...scopeValues(payload.scope), ...scopeValues(payload.scp)])].sort();
-      if (!scopes.includes(this.env.OIDC_REQUIRED_SCOPE)) {
+      if (this.env.OIDC_REQUIRED_SCOPE && !scopes.includes(this.env.OIDC_REQUIRED_SCOPE)) {
         throw unauthorized(`Access token is missing scope "${this.env.OIDC_REQUIRED_SCOPE}".`);
       }
 

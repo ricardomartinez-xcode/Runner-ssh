@@ -9,6 +9,41 @@ const secret = z.object({
   mode: z.enum(["key", "password", "token"]).optional(),
 });
 
+type JwtConfigSource = {
+  SUPABASE_URL?: string;
+  SUPABASE_JWKS_URL?: string;
+  SUPABASE_JWT_AUDIENCE?: string;
+  OIDC_ISSUER_URL?: string;
+  OIDC_JWKS_URL?: string;
+  OIDC_AUDIENCE?: string;
+};
+
+function optionalUrl() {
+  return z.preprocess((value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }, z.string().url().optional());
+}
+
+function optionalText() {
+  return z.preprocess((value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }, z.string().min(1).optional());
+}
+
+export function resolveOidcConfig(source: JwtConfigSource): { issuerUrl?: string; jwksUrl?: string; audience?: string } {
+  const supabaseUrl = source.SUPABASE_URL?.replace(/\/+$/, "");
+  const hasSupabaseJwtConfig = Boolean(supabaseUrl || source.SUPABASE_JWKS_URL);
+  return {
+    issuerUrl: source.OIDC_ISSUER_URL ?? (supabaseUrl ? `${supabaseUrl}/auth/v1` : undefined),
+    jwksUrl: source.OIDC_JWKS_URL ?? source.SUPABASE_JWKS_URL ?? (supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : undefined),
+    audience: source.OIDC_AUDIENCE ?? (hasSupabaseJwtConfig ? source.SUPABASE_JWT_AUDIENCE ?? "authenticated" : undefined),
+  };
+}
+
 const task = z.object({
   description: z.string().min(1),
   argv: z.array(z.string().min(1)).min(1),
@@ -62,10 +97,14 @@ const environment = z.object({
 
   AUTH_MODE: z.enum(["oidc", "api_token", "dual", "clerk_oauth"]).default("oidc"),
 
-  OIDC_ISSUER_URL: z.string().url().optional(),
-  OIDC_JWKS_URL: z.string().url().optional(),
-  OIDC_AUDIENCE: z.string().min(1).optional(),
-  OIDC_REQUIRED_SCOPE: z.string().min(1).default("runner:ssh"),
+  SUPABASE_URL: optionalUrl(),
+  SUPABASE_JWKS_URL: optionalUrl(),
+  SUPABASE_JWT_AUDIENCE: optionalText().default("authenticated"),
+
+  OIDC_ISSUER_URL: optionalUrl(),
+  OIDC_JWKS_URL: optionalUrl(),
+  OIDC_AUDIENCE: optionalText(),
+  OIDC_REQUIRED_SCOPE: z.string().optional().transform((value) => value === undefined ? "runner:ssh" : value.trim() || undefined),
   OIDC_ROLE_CLAIMS: z.string().min(1).default("roles,org_role"),
 
   CLERK_FRONTEND_API_URL: z.string().url().optional(),
@@ -96,16 +135,17 @@ const environment = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().min(10).max(10_000).default(600),
 }).superRefine((value, ctx) => {
   if (value.AUTH_MODE === "oidc" || value.AUTH_MODE === "dual") {
+    const jwtConfig = resolveOidcConfig(value);
     ([
-      ["OIDC_ISSUER_URL", value.OIDC_ISSUER_URL],
-      ["OIDC_JWKS_URL", value.OIDC_JWKS_URL],
-      ["OIDC_AUDIENCE", value.OIDC_AUDIENCE],
+      ["OIDC_ISSUER_URL", jwtConfig.issuerUrl],
+      ["OIDC_JWKS_URL", jwtConfig.jwksUrl],
+      ["OIDC_AUDIENCE", jwtConfig.audience],
     ] as const).forEach(([key, candidate]) => {
       if (!candidate) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [key],
-          message: `${key} is required when AUTH_MODE is ${value.AUTH_MODE}.`,
+          message: `${key} is required when AUTH_MODE is ${value.AUTH_MODE}; set OIDC_* directly or configure SUPABASE_URL/SUPABASE_JWKS_URL.`,
         });
       }
     });
