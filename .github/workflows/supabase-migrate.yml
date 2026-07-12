@@ -48,15 +48,8 @@ jobs:
       - name: Show migration status before run
         run: supabase migration list --linked
 
-      - name: Repair legacy migration version
-        shell: bash
-        run: |
-          set -euo pipefail
-          supabase migration repair --linked --status reverted 20260710103605
-          supabase migration repair --linked --status applied 0003
-
       - name: Apply all pending migrations
         run: supabase db push --linked --include-all
 
-      - name: Show migration status after
+      - name: Show migration status after run
         run: supabase migration list --linked
