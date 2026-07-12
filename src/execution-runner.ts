@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { AdminService } from "./admin.js";
 import { AppError } from "./errors.js";
 import { appendExecutionLog } from "./execution-log.js";
-import { redact } from "./redaction.js";
 import { readManagedCredential } from "./target-secrets.js";
+import { isValidSshHost, isValidSshUsername } from "./ssh-validation.js";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -17,7 +17,7 @@ export type TargetRow = {
   host: string;
   port: number;
   username: string;
-  auth_type: "private_key" | "password" | "agent" | "token";
+  auth_type: string;
   secret_ref: string | null;
   working_directory: string | null;
   known_hosts: string | null;
@@ -59,8 +59,13 @@ export type SshExecutionOptions = {
 export function cloudflareProxyCommand(target: Pick<TargetRow, "type">): string | undefined {
   if (target.type !== "cloudflare_tunnel") return undefined;
 
-  const clientId = process.env.CF_ACCESS_CLIENT_ID?.trim();
-  const clientSecret = process.env.CF_ACCESS_CLIENT_SECRET?.trim();
+  cloudflareAccessEnvironment();
+  return "cloudflared access ssh --hostname %h";
+}
+
+export function cloudflareAccessEnvironment(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const clientId = source.TUNNEL_SERVICE_TOKEN_ID?.trim() ?? source.CF_ACCESS_CLIENT_ID?.trim();
+  const clientSecret = source.TUNNEL_SERVICE_TOKEN_SECRET?.trim() ?? source.CF_ACCESS_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     throw new AppError(
       500,
@@ -68,8 +73,7 @@ export function cloudflareProxyCommand(target: Pick<TargetRow, "type">): string 
       "Cloudflare Access service-token credentials are missing.",
     );
   }
-
-  return "cloudflared access ssh --hostname %h";
+  return { TUNNEL_SERVICE_TOKEN_ID: clientId, TUNNEL_SERVICE_TOKEN_SECRET: clientSecret };
 }
 
 function quote(value: string): string {
@@ -108,6 +112,21 @@ export async function resolveExecutionSecret(admin: AdminService, reference: str
   throw new AppError(400, "invalid_secret_ref", "Use a managed credential, a Render environment variable, or an advanced reference.");
 }
 
+function combinedCredential(value: string | undefined): { privateKey: string; password: string } {
+  if (!value) throw new AppError(500, "secret_resolution_failed", "Private key and password credential is missing.");
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid combined credential.");
+    const record = parsed as Record<string, unknown>;
+    const privateKey = typeof record.private_key === "string" ? record.private_key.trim() : "";
+    const password = typeof record.password === "string" ? record.password : "";
+    if (!privateKey || !password) throw new Error("Invalid combined credential.");
+    return { privateKey, password };
+  } catch {
+    throw new AppError(500, "invalid_combined_credential", "Private key and password targets require a JSON secret with private_key and password.");
+  }
+}
+
 export async function runSshCommand(
   admin: AdminService,
   target: TargetRow,
@@ -118,21 +137,34 @@ export async function runSshCommand(
     throw new AppError(400, "unsupported_target", "This target type is not directly executable by the Render worker.");
   }
   if (!target.known_hosts?.trim()) throw new AppError(400, "known_hosts_required", "A known_hosts entry is required.");
-  if (target.auth_type === "token") throw new AppError(400, "unsupported_auth", "Token authentication is not supported for SSH.");
+  if (!isValidSshHost(target.host, target.type === "cloudflare_tunnel")) {
+    throw new AppError(400, "invalid_ssh_host", "Target host is not a valid SSH hostname or IP address.");
+  }
+  if (!isValidSshUsername(target.username)) {
+    throw new AppError(400, "invalid_ssh_username", "Target username is not valid for SSH.");
+  }
+  if (!["private_key", "password", "private_key_password", "agent"].includes(target.auth_type)) {
+    throw new AppError(400, "unsupported_auth", "Only SSH private key, password, key plus password, or agent authentication is supported.");
+  }
 
   const directory = await mkdtemp(join(tmpdir(), "relead-ops-"));
   const knownHosts = join(directory, "known_hosts");
   const keyFile = join(directory, "identity");
   const credential = target.auth_type === "agent" ? undefined : options.directCredential ?? await resolveExecutionSecret(admin, target.secret_ref);
+  const combined = target.auth_type === "private_key_password" ? combinedCredential(credential) : undefined;
+  const privateKey = target.auth_type === "private_key_password" ? combined?.privateKey : credential;
+  const password = target.auth_type === "private_key_password" ? combined?.password : credential;
   await writeFile(knownHosts, `${target.known_hosts.trim()}\n`, { mode: 0o600 });
-  if (target.auth_type === "private_key") {
-    if (!credential) throw new AppError(500, "secret_resolution_failed", "Private key is missing.");
-    await writeFile(keyFile, `${credential.trim()}\n`, { mode: 0o600 });
+  if (target.auth_type === "private_key" || target.auth_type === "private_key_password") {
+    if (!privateKey) throw new AppError(500, "secret_resolution_failed", "Private key is missing.");
+    await writeFile(keyFile, `${privateKey.trim()}\n`, { mode: 0o600 });
   }
 
+  const usesPassword = target.auth_type === "password" || target.auth_type === "private_key_password";
+  const usesKey = target.auth_type === "private_key" || target.auth_type === "private_key_password";
   const args = [
     "-p", String(target.port),
-    "-o", `BatchMode=${target.auth_type === "password" ? "no" : "yes"}`,
+    "-o", `BatchMode=${usesPassword ? "no" : "yes"}`,
     "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${knownHosts}`,
     "-o", "ConnectTimeout=15",
@@ -140,12 +172,14 @@ export async function runSshCommand(
   ];
   const proxyCommand = cloudflareProxyCommand(target);
   if (proxyCommand) args.push("-o", `ProxyCommand=${proxyCommand}`);
-  if (target.auth_type === "private_key") args.push("-i", keyFile, "-o", "IdentitiesOnly=yes");
+  if (usesKey) args.push("-i", keyFile, "-o", "IdentitiesOnly=yes");
+  if (target.auth_type === "private_key_password") args.push("-o", "PreferredAuthentications=publickey,password,keyboard-interactive");
   args.push(`${target.username}@${target.host}`, commandText);
 
-  const executable = target.auth_type === "password" ? "sshpass" : "ssh";
-  const finalArgs = target.auth_type === "password" ? ["-e", "ssh", ...args] : args;
-  const env = target.auth_type === "password" ? { ...process.env, SSHPASS: credential ?? "" } : process.env;
+  const executable = usesPassword ? "sshpass" : "ssh";
+  const finalArgs = usesPassword ? ["-e", "ssh", ...args] : args;
+  const baseEnvironment = proxyCommand ? { ...process.env, ...cloudflareAccessEnvironment() } : process.env;
+  const env = usesPassword ? { ...baseEnvironment, SSHPASS: password ?? "" } : baseEnvironment;
   const started = Date.now();
 
   try {
@@ -157,6 +191,11 @@ export async function runSshCommand(
       let stderrTruncated = false;
       let timedOut = false;
       let finished = false;
+      let streamQueue = Promise.resolve();
+      const enqueue = (callback: (() => Promise<void> | void) | undefined) => {
+        if (!callback) return;
+        streamQueue = streamQueue.then(async () => callback()).catch(() => undefined);
+      };
       const stop = () => {
         if (child.exitCode !== null || child.killed) return;
         timedOut = true;
@@ -172,16 +211,26 @@ export async function runSshCommand(
       options.signal?.addEventListener("abort", abort, { once: true });
 
       child.stdout.on("data", (chunk: Buffer) => {
+        const previous = stdout;
+        const wasTruncated = stdoutTruncated;
         const next = appendExecutionLog(stdout, chunk.toString("utf8"), options.maxLogBytes);
         stdout = next.value;
         stdoutTruncated ||= next.truncated;
-        void options.onStdout?.(redact(chunk.toString("utf8")), stdoutTruncated);
+        const appended = stdout.slice(previous.length);
+        if (appended || (!wasTruncated && stdoutTruncated)) {
+          enqueue(() => options.onStdout?.(appended, stdoutTruncated));
+        }
       });
       child.stderr.on("data", (chunk: Buffer) => {
+        const previous = stderr;
+        const wasTruncated = stderrTruncated;
         const next = appendExecutionLog(stderr, chunk.toString("utf8"), options.maxLogBytes);
         stderr = next.value;
         stderrTruncated ||= next.truncated;
-        void options.onStderr?.(redact(chunk.toString("utf8")), stderrTruncated);
+        const appended = stderr.slice(previous.length);
+        if (appended || (!wasTruncated && stderrTruncated)) {
+          enqueue(() => options.onStderr?.(appended, stderrTruncated));
+        }
       });
       child.on("error", () => {
         if (finished) return;
@@ -195,14 +244,16 @@ export async function runSshCommand(
         finished = true;
         clearTimeout(timer);
         options.signal?.removeEventListener("abort", abort);
-        resolve({
-          stdout,
-          stderr,
-          stdoutTruncated,
-          stderrTruncated,
-          exitCode: code ?? 255,
-          durationMs: Date.now() - started,
-          timedOut,
+        void streamQueue.finally(() => {
+          resolve({
+            stdout,
+            stderr,
+            stdoutTruncated,
+            stderrTruncated,
+            exitCode: code ?? 255,
+            durationMs: Date.now() - started,
+            timedOut,
+          });
         });
       });
     });

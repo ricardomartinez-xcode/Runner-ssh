@@ -27,6 +27,24 @@ describe("target onboarding", () => {
     })).toThrow(/private key/i);
   });
 
+  it("requires both private key and password for combined SSH auth", () => {
+    expect(() => validateTargetCredential({
+      authType: "private_key_password",
+      source: "managed",
+      privateKey: "not a key",
+      password: "secret",
+      passwordConfirmation: "secret",
+    })).toThrow(/private key/i);
+
+    expect(() => validateTargetCredential({
+      authType: "private_key_password",
+      source: "managed",
+      privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
+      password: "one",
+      passwordConfirmation: "two",
+    })).toThrow(/match/i);
+  });
+
   it("normalizes Render environment variables without accepting raw secret values", () => {
     expect(normalizeCredentialReference({
       source: "environment",

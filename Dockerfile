@@ -12,19 +12,21 @@ RUN npm run build && npm prune --omit=dev --ignore-scripts
 FROM 1password/op:2 AS onepassword
 
 FROM node:22-bookworm-slim
+ARG CLOUDFLARED_VERSION=2026.7.1
+ARG CLOUDFLARED_SHA256=79f790b45e6a9152c6cf63f60f4901e3d8a029f7f4be1345a24cd2373aba8e7d
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl dumb-init git openssh-client sshpass \
     && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p -m 755 /etc/apt/keyrings /usr/share/keyrings \
+RUN curl -fsSL -o /tmp/cloudflared.deb "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb" \
+    && echo "${CLOUDFLARED_SHA256}  /tmp/cloudflared.deb" | sha256sum -c - \
+    && dpkg -i /tmp/cloudflared.deb \
+    && rm -f /tmp/cloudflared.deb
+RUN mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
-    && curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg \
-    && chmod go+r /usr/share/keyrings/cloudflare-main.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends cloudflared gh \
-    && cloudflared --version \
+    && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=onepassword /usr/local/bin/op /usr/local/bin/op
 WORKDIR /app
@@ -32,7 +34,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY config ./config
 COPY package.json ./
-RUN useradd --create-home --shell /usr/sbin/nologin runner \
+RUN useradd --create-home --shell /bin/bash runner \
+    && install -d -m 0700 -o runner -g runner /home/runner/.ssh \
     && mkdir -p /var/data \
     && chown -R runner:runner /app /var/data
 USER runner

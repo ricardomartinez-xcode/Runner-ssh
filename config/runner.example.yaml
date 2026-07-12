@@ -46,16 +46,20 @@ collections:
         timeout_seconds: 45
 
 targets:
-  codespace-dev:
-    type: codespace
-    description: "Development Codespace placeholder. Replace before use."
+  releadserver-cloudflare:
+    type: cloudflare_tunnel
+    description: "Cloudflare Tunnel SSH placeholder. Replace before use."
     required_roles: ["runner.operator"]
     allowed_collections: ["repository"]
-    working_directory: "/workspaces/replace-me"
-    codespace_name: "replace-me"
-    github_token:
-      provider: 1password
-      reference: "op://runner-ssh-dev/github-codespaces/token"
+    working_directory: "/srv/replace-me"
+    host: "ssh.relead.com.mx"
+    port: 22
+    username: "runner"
+    known_hosts: "ssh.relead.com.mx ssh-ed25519 AAAA_REPLACE_WITH_REAL_HOST_KEY"
+    auth:
+      provider: env
+      reference: "RELEADSERVER_SSH_CREDENTIAL"
+      mode: private_key_password
 
   microserver-staging:
     type: ssh

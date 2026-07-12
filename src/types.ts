@@ -1,10 +1,10 @@
-export type TargetType = "ssh" | "codespace";
+export type TargetType = "ssh" | "cloudflare_tunnel";
 export type JobStatus = "planned" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "expired";
 
 export type SecretReference = {
   provider: "1password" | "env";
   reference: string;
-  mode?: "key" | "password" | "token";
+  mode?: "key" | "password" | "private_key_password";
 };
 
 export type TaskDefinition = {
@@ -20,7 +20,7 @@ export type CollectionDefinition = {
 };
 
 export type SshTarget = {
-  type: "ssh";
+  type: TargetType;
   description: string;
   required_roles?: string[];
   allowed_collections: string[];
@@ -29,20 +29,10 @@ export type SshTarget = {
   port?: number;
   username: string;
   known_hosts: string;
-  auth: SecretReference & { mode: "key" | "password" };
+  auth: SecretReference & { mode: "key" | "password" | "private_key_password" };
 };
 
-export type CodespaceTarget = {
-  type: "codespace";
-  description: string;
-  required_roles?: string[];
-  allowed_collections: string[];
-  working_directory?: string;
-  codespace_name: string;
-  github_token: SecretReference;
-};
-
-export type TargetDefinition = SshTarget | CodespaceTarget;
+export type TargetDefinition = SshTarget;
 
 export type RunnerConfig = {
   version: 1;

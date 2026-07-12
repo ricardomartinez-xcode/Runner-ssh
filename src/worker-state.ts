@@ -30,6 +30,10 @@ export function workerHeartbeatPatch(workerId: string, now: Date): ExecutionPatc
   };
 }
 
+export function workerOwnershipFilter(executionId: string, workerId: string): string {
+  return `id=eq.${encodeURIComponent(executionId)}&status=eq.running&worker_id=eq.${encodeURIComponent(workerId)}`;
+}
+
 export function nextRetryPatch(execution: Pick<ClaimableExecution, "retry_count" | "max_retries">, error: string, now: Date): ExecutionPatch {
   const retryCount = execution.retry_count ?? 0;
   const maxRetries = execution.max_retries ?? 0;

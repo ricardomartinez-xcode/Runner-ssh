@@ -4,7 +4,7 @@ version: 1
 # server-side allowlisted targets, collections, and tasks.
 collections:
   repository:
-    description: "Safe repository checks for the Runner-SSH Codespace."
+    description: "Safe repository checks for a ReLead Ops SSH target."
     tasks:
       repo.status:
         description: "Show the Git working tree status."
@@ -28,12 +28,16 @@ collections:
         timeout_seconds: 300
 
 targets:
-  runner-ssh-codespace:
-    type: codespace
-    description: "Runner-SSH GitHub Codespace on main."
+  releadserver-cloudflare:
+    type: cloudflare_tunnel
+    description: "ReleadServer over Cloudflare Tunnel. Replace host and known_hosts before enabling."
     allowed_collections: ["repository"]
-    working_directory: "/workspaces/Runner-ssh"
-    codespace_name: "runner-ssh-jj64gvwvxwjr2q9j9"
-    github_token:
+    working_directory: "/home/ricardo/Runner-ssh"
+    host: "ssh.relead.com.mx"
+    port: 22
+    username: "ricardo"
+    known_hosts: "ssh.relead.com.mx ssh-ed25519 REPLACE_WITH_REAL_HOST_KEY"
+    auth:
       provider: env
-      reference: "RUNNER_GITHUB_TOKEN"
+      reference: "RELEADSERVER_SSH_CREDENTIAL"
+      mode: private_key_password

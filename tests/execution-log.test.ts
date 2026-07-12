@@ -16,4 +16,12 @@ describe("appendExecutionLog", () => {
     expect(result.value).toBe("abcde");
     expect(result.truncated).toBe(true);
   });
+
+  it("does not split a multibyte UTF-8 code point while truncating", () => {
+    const result = appendExecutionLog("", "ééé", 5);
+
+    expect(result.value).toBe("éé");
+    expect(Buffer.byteLength(result.value, "utf8")).toBeLessThanOrEqual(5);
+    expect(result.value).not.toContain("�");
+  });
 });
